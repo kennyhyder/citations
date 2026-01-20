@@ -54,9 +54,23 @@ export function DomainTable({ domains }: DomainTableProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
 
-  // Sort and paginate domains
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Filter domains by search query
+  const filteredDomains = useMemo(() => {
+    if (!searchQuery.trim()) return domains;
+    const query = searchQuery.toLowerCase().trim();
+    return domains.filter(d =>
+      d.domain.toLowerCase().includes(query) ||
+      d.brand_info?.business_name?.toLowerCase().includes(query) ||
+      d.source.toLowerCase().includes(query)
+    );
+  }, [domains, searchQuery]);
+
+  // Sort filtered domains
   const sortedDomains = useMemo(() => {
-    const sorted = [...domains].sort((a, b) => {
+    const sorted = [...filteredDomains].sort((a, b) => {
       let aVal: string | number | null = null;
       let bVal: string | number | null = null;
 
@@ -93,14 +107,14 @@ export function DomainTable({ domains }: DomainTableProps) {
       return 0;
     });
     return sorted;
-  }, [domains, sortField, sortDirection]);
+  }, [filteredDomains, sortField, sortDirection]);
 
   const paginatedDomains = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
     return sortedDomains.slice(start, start + pageSize);
   }, [sortedDomains, currentPage, pageSize]);
 
-  const totalPages = Math.ceil(domains.length / pageSize);
+  const totalPages = Math.ceil(filteredDomains.length / pageSize);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -240,8 +254,54 @@ export function DomainTable({ domains }: DomainTableProps) {
     }
   };
 
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+    setCurrentPage(1); // Reset to first page when searching
+  };
+
   return (
     <div>
+      {/* Search bar */}
+      <div className="mb-4">
+        <div className="relative">
+          <input
+            type="text"
+            placeholder="Search domains, business names, or sources..."
+            value={searchQuery}
+            onChange={handleSearchChange}
+            className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 pl-10 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-400"
+          />
+          <svg
+            className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
+          </svg>
+          {searchQuery && (
+            <button
+              onClick={() => { setSearchQuery(''); setCurrentPage(1); }}
+              className="absolute right-3 top-2.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
+        {searchQuery && (
+          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+            Found {filteredDomains.length} of {domains.length} domains matching "{searchQuery}"
+          </p>
+        )}
+      </div>
+
       {/* Selection toolbar */}
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg bg-zinc-100 p-3 dark:bg-zinc-800">
         <span className="text-sm text-zinc-600 dark:text-zinc-400">
@@ -450,7 +510,8 @@ export function DomainTable({ domains }: DomainTableProps) {
           </select>
           <span>per page</span>
           <span className="ml-4">
-            Showing {((currentPage - 1) * pageSize) + 1}-{Math.min(currentPage * pageSize, domains.length)} of {domains.length} domains
+            Showing {filteredDomains.length > 0 ? ((currentPage - 1) * pageSize) + 1 : 0}-{Math.min(currentPage * pageSize, filteredDomains.length)} of {filteredDomains.length} domains
+            {searchQuery && ` (filtered from ${domains.length})`}
           </span>
         </div>
 
