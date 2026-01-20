@@ -151,24 +151,43 @@ export const db = {
   },
 
   async getDomainsWithBrands(): Promise<DomainWithBrand[]> {
-    const { data, error } = await getSupabase()
-      .from('domains')
-      .select(`
-        *,
-        brand_info (*),
-        relate_brand:relate_brands (*),
-        brightlocal_brand:brightlocal_brands (*)
-      `)
-      .order('domain', { ascending: true });
+    // Supabase has a default limit of 1000 rows, so we need to paginate to get all
+    const allData: DomainWithBrand[] = [];
+    const pageSize = 1000;
+    let offset = 0;
+    let hasMore = true;
 
-    if (error) throw error;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (data || []).map((d: any) => ({
-      ...d,
-      brand_info: d.brand_info?.[0] || null,
-      relate_brand: d.relate_brand?.[0] || null,
-      brightlocal_brand: d.brightlocal_brand?.[0] || null,
-    }));
+    while (hasMore) {
+      const { data, error } = await getSupabase()
+        .from('domains')
+        .select(`
+          *,
+          brand_info (*),
+          relate_brand:relate_brands (*),
+          brightlocal_brand:brightlocal_brands (*)
+        `)
+        .order('domain', { ascending: true })
+        .range(offset, offset + pageSize - 1);
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const mapped = data.map((d: any) => ({
+          ...d,
+          brand_info: d.brand_info?.[0] || null,
+          relate_brand: d.relate_brand?.[0] || null,
+          brightlocal_brand: d.brightlocal_brand?.[0] || null,
+        }));
+        allData.push(...mapped);
+        offset += pageSize;
+        hasMore = data.length === pageSize;
+      } else {
+        hasMore = false;
+      }
+    }
+
+    return allData;
   },
 
   async getDomain(id: string): Promise<DomainWithBrand | null> {
