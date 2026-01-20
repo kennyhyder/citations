@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Button, StatusBadge } from '@/components';
 
@@ -33,6 +33,10 @@ const sourceColors: Record<string, string> = {
 };
 
 type PushTarget = 'relate' | 'brightlocal';
+type SortField = 'domain' | 'source' | 'brand_info' | 'relate' | 'brightlocal' | 'expires_at';
+type SortDirection = 'asc' | 'desc';
+
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 250];
 
 export function DomainTable({ domains }: DomainTableProps) {
   const [selectedDomains, setSelectedDomains] = useState<Set<string>>(new Set());
@@ -41,6 +45,79 @@ export function DomainTable({ domains }: DomainTableProps) {
   const [pushResult, setPushResult] = useState<{ success: boolean; message: string } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Sorting state
+  const [sortField, setSortField] = useState<SortField>('domain');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
+  // Sort and paginate domains
+  const sortedDomains = useMemo(() => {
+    const sorted = [...domains].sort((a, b) => {
+      let aVal: string | number | null = null;
+      let bVal: string | number | null = null;
+
+      switch (sortField) {
+        case 'domain':
+          aVal = a.domain.toLowerCase();
+          bVal = b.domain.toLowerCase();
+          break;
+        case 'source':
+          aVal = a.source;
+          bVal = b.source;
+          break;
+        case 'brand_info':
+          aVal = a.brand_info ? 1 : 0;
+          bVal = b.brand_info ? 1 : 0;
+          break;
+        case 'relate':
+          aVal = a.relate_brand?.status || '';
+          bVal = b.relate_brand?.status || '';
+          break;
+        case 'brightlocal':
+          aVal = a.brightlocal_brand?.status || '';
+          bVal = b.brightlocal_brand?.status || '';
+          break;
+        case 'expires_at':
+          aVal = a.expires_at || '9999-12-31';
+          bVal = b.expires_at || '9999-12-31';
+          break;
+      }
+
+      if (aVal === null || bVal === null) return 0;
+      if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return sorted;
+  }, [domains, sortField, sortDirection]);
+
+  const paginatedDomains = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return sortedDomains.slice(start, start + pageSize);
+  }, [sortedDomains, currentPage, pageSize]);
+
+  const totalPages = Math.ceil(domains.length / pageSize);
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+    setCurrentPage(1);
+  };
+
+  const SortIcon = ({ field }: { field: SortField }) => {
+    if (sortField !== field) {
+      return <span className="ml-1 text-zinc-300 dark:text-zinc-600">↕</span>;
+    }
+    return <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>;
+  };
 
   const toggleDomain = (id: string) => {
     const newSelected = new Set(selectedDomains);
@@ -58,6 +135,18 @@ export function DomainTable({ domains }: DomainTableProps) {
     } else {
       setSelectedDomains(new Set(domains.map(d => d.id)));
     }
+  };
+
+  const togglePageDomains = () => {
+    const pageIds = paginatedDomains.map(d => d.id);
+    const allPageSelected = pageIds.every(id => selectedDomains.has(id));
+    const newSelected = new Set(selectedDomains);
+    if (allPageSelected) {
+      pageIds.forEach(id => newSelected.delete(id));
+    } else {
+      pageIds.forEach(id => newSelected.add(id));
+    }
+    setSelectedDomains(newSelected);
   };
 
   const selectWithBrandInfo = () => {
@@ -236,28 +325,46 @@ export function DomainTable({ domains }: DomainTableProps) {
               <th className="px-4 py-3 text-left">
                 <input
                   type="checkbox"
-                  checked={selectedDomains.size === domains.length && domains.length > 0}
-                  onChange={toggleAll}
+                  checked={paginatedDomains.length > 0 && paginatedDomains.every(d => selectedDomains.has(d.id))}
+                  onChange={togglePageDomains}
                   className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500 dark:border-zinc-600"
                 />
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                Domain
+              <th
+                className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400 cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200"
+                onClick={() => handleSort('domain')}
+              >
+                Domain<SortIcon field="domain" />
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                Source
+              <th
+                className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400 cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200"
+                onClick={() => handleSort('source')}
+              >
+                Source<SortIcon field="source" />
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                Brand Info
+              <th
+                className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400 cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200"
+                onClick={() => handleSort('brand_info')}
+              >
+                Brand Info<SortIcon field="brand_info" />
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                Relate
+              <th
+                className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400 cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200"
+                onClick={() => handleSort('relate')}
+              >
+                Relate<SortIcon field="relate" />
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                BrightLocal
+              <th
+                className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400 cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200"
+                onClick={() => handleSort('brightlocal')}
+              >
+                BrightLocal<SortIcon field="brightlocal" />
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                Expires
+              <th
+                className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400 cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200"
+                onClick={() => handleSort('expires_at')}
+              >
+                Expires<SortIcon field="expires_at" />
               </th>
               <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
                 Actions
@@ -265,7 +372,7 @@ export function DomainTable({ domains }: DomainTableProps) {
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-200 bg-white dark:divide-zinc-800 dark:bg-zinc-900">
-            {domains.map((domain) => (
+            {paginatedDomains.map((domain) => (
               <tr
                 key={domain.id}
                 className={`hover:bg-zinc-50 dark:hover:bg-zinc-800/50 ${selectedDomains.has(domain.id) ? 'bg-zinc-100 dark:bg-zinc-800' : ''}`}
@@ -323,6 +430,88 @@ export function DomainTable({ domains }: DomainTableProps) {
             ))}
           </tbody>
         </table>
+      </div>
+
+      {/* Pagination */}
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+          <span>Show</span>
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value));
+              setCurrentPage(1);
+            }}
+            className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+          >
+            {PAGE_SIZE_OPTIONS.map(size => (
+              <option key={size} value={size}>{size}</option>
+            ))}
+          </select>
+          <span>per page</span>
+          <span className="ml-4">
+            Showing {((currentPage - 1) * pageSize) + 1}-{Math.min(currentPage * pageSize, domains.length)} of {domains.length} domains
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setCurrentPage(1)}
+            disabled={currentPage === 1}
+            className="rounded-md px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 disabled:cursor-not-allowed dark:text-zinc-400 dark:hover:bg-zinc-800"
+          >
+            First
+          </button>
+          <button
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            className="rounded-md px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 disabled:cursor-not-allowed dark:text-zinc-400 dark:hover:bg-zinc-800"
+          >
+            Prev
+          </button>
+
+          {/* Page numbers */}
+          {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+            let pageNum: number;
+            if (totalPages <= 5) {
+              pageNum = i + 1;
+            } else if (currentPage <= 3) {
+              pageNum = i + 1;
+            } else if (currentPage >= totalPages - 2) {
+              pageNum = totalPages - 4 + i;
+            } else {
+              pageNum = currentPage - 2 + i;
+            }
+            return (
+              <button
+                key={pageNum}
+                onClick={() => setCurrentPage(pageNum)}
+                className={`rounded-md px-3 py-1 text-sm ${
+                  currentPage === pageNum
+                    ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                    : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800'
+                }`}
+              >
+                {pageNum}
+              </button>
+            );
+          })}
+
+          <button
+            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+            disabled={currentPage === totalPages}
+            className="rounded-md px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 disabled:cursor-not-allowed dark:text-zinc-400 dark:hover:bg-zinc-800"
+          >
+            Next
+          </button>
+          <button
+            onClick={() => setCurrentPage(totalPages)}
+            disabled={currentPage === totalPages}
+            className="rounded-md px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 disabled:cursor-not-allowed dark:text-zinc-400 dark:hover:bg-zinc-800"
+          >
+            Last
+          </button>
+        </div>
       </div>
     </div>
   );
