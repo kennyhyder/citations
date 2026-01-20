@@ -38,6 +38,7 @@ CREATE TRIGGER update_brightlocal_brands_updated_at
 ALTER TABLE brightlocal_brands ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies (allow all for service role)
+DROP POLICY IF EXISTS "Allow all for service role" ON brightlocal_brands;
 CREATE POLICY "Allow all for service role" ON brightlocal_brands
     FOR ALL
     USING (true)

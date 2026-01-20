@@ -7,6 +7,7 @@ const navItems = [
   { href: '/', label: 'Dashboard' },
   { href: '/domains', label: 'Domains' },
   { href: '/sync', label: 'Sync' },
+  { href: '/settings', label: 'Settings' },
 ];
 
 export function Navigation() {

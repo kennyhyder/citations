@@ -8,7 +8,7 @@ type Database = any;
 export interface Domain {
   id: string;
   domain: string;
-  source: 'hostinger' | 'godaddy' | 'namecheap';
+  source: 'hostinger' | 'godaddy' | 'namecheap' | 'manual';
   source_id: string | null;
   status: string;
   expires_at: string | null;
@@ -78,6 +78,17 @@ export interface SyncLog {
   started_at: string;
   completed_at: string | null;
   metadata: Record<string, unknown> | null;
+}
+
+export interface Setting {
+  id: string;
+  key: string;
+  value: string | null;
+  encrypted: boolean;
+  description: string | null;
+  category: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // Extended domain with brand info
@@ -423,5 +434,78 @@ export const db = {
                    brightLocalBrands.filter(r => r.status === 'pending' || r.status === 'error').length,
       withBrandInfo: brandResult.count || 0,
     };
+  },
+
+  // Settings
+  async getSettings(): Promise<Setting[]> {
+    const { data, error } = await getSupabase()
+      .from('settings')
+      .select('*')
+      .order('category', { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  },
+
+  async getSettingsByCategory(category: string): Promise<Setting[]> {
+    const { data, error } = await getSupabase()
+      .from('settings')
+      .select('*')
+      .eq('category', category)
+      .order('key', { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  },
+
+  async getSetting(key: string): Promise<string | null> {
+    const { data, error } = await getSupabase()
+      .from('settings')
+      .select('value')
+      .eq('key', key)
+      .single();
+
+    if (error && error.code !== 'PGRST116') throw error;
+    return data?.value || null;
+  },
+
+  async getSettingsMap(): Promise<Record<string, string>> {
+    const settings = await db.getSettings();
+    return settings.reduce((acc, s) => {
+      if (s.value) {
+        acc[s.key] = s.value;
+      }
+      return acc;
+    }, {} as Record<string, string>);
+  },
+
+  async upsertSetting(key: string, value: string | null, description?: string, category?: string): Promise<Setting> {
+    const { data, error } = await getSupabase()
+      .from('settings')
+      .upsert({
+        key,
+        value,
+        description,
+        category: category || 'general',
+      }, { onConflict: 'key' })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async updateSettings(settings: Record<string, string | null>): Promise<void> {
+    const updates = Object.entries(settings).map(([key, value]) => ({
+      key,
+      value,
+    }));
+
+    for (const update of updates) {
+      await getSupabase()
+        .from('settings')
+        .update({ value: update.value })
+        .eq('key', update.key);
+    }
   },
 };

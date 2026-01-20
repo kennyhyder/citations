@@ -29,6 +29,7 @@ const sourceColors: Record<string, string> = {
   hostinger: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
   godaddy: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
   namecheap: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200',
+  manual: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
 };
 
 type PushTarget = 'relate' | 'brightlocal';
@@ -38,6 +39,8 @@ export function DomainTable({ domains }: DomainTableProps) {
   const [pushing, setPushing] = useState(false);
   const [pushTarget, setPushTarget] = useState<PushTarget | null>(null);
   const [pushResult, setPushResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const toggleDomain = (id: string) => {
     const newSelected = new Set(selectedDomains);
@@ -110,6 +113,44 @@ export function DomainTable({ domains }: DomainTableProps) {
 
   const eligibleCount = domains.filter(d => d.brand_info && (!d.relate_brand || d.relate_brand.status !== 'active')).length;
 
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    setUploadResult(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch('/api/domains/import', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const result = await response.json();
+      setUploadResult({
+        success: result.success,
+        message: result.message + (result.results?.errors?.length ? ` Errors: ${result.results.errors.join(', ')}` : ''),
+      });
+
+      // Reload page to show new domains
+      if (result.success) {
+        setTimeout(() => window.location.reload(), 1500);
+      }
+    } catch (error) {
+      setUploadResult({
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to upload CSV',
+      });
+    } finally {
+      setUploading(false);
+      // Reset file input
+      event.target.value = '';
+    }
+  };
+
   return (
     <div>
       {/* Selection toolbar */}
@@ -126,6 +167,31 @@ export function DomainTable({ domains }: DomainTableProps) {
           </Button>
         </div>
         <div className="flex-1" />
+        <div className="flex items-center gap-2">
+          <a
+            href="/sample-domains.csv"
+            download
+            className="text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 underline"
+          >
+            Sample CSV
+          </a>
+          <label className="cursor-pointer">
+            <input
+              type="file"
+              accept=".csv"
+              onChange={handleFileUpload}
+              disabled={uploading}
+              className="hidden"
+            />
+            <span className={`inline-flex items-center rounded-md px-3 py-1.5 text-sm font-medium ${
+              uploading
+                ? 'bg-zinc-200 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400'
+                : 'bg-zinc-200 text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600 cursor-pointer'
+            }`}>
+              {uploading ? 'Uploading...' : 'Upload CSV'}
+            </span>
+          </label>
+        </div>
         <div className="flex gap-2">
           <Button
             onClick={() => pushToService('relate')}
@@ -144,7 +210,16 @@ export function DomainTable({ domains }: DomainTableProps) {
         </div>
       </div>
 
-      {/* Result message */}
+      {/* Upload result message */}
+      {uploadResult && (
+        <div className={`mb-4 rounded-md p-4 ${uploadResult.success ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
+          <p className={`text-sm ${uploadResult.success ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}`}>
+            {uploadResult.message}
+          </p>
+        </div>
+      )}
+
+      {/* Push result message */}
       {pushResult && (
         <div className={`mb-4 rounded-md p-4 ${pushResult.success ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
           <p className={`text-sm ${pushResult.success ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}`}>

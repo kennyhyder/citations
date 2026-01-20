@@ -4,7 +4,7 @@ export { namecheapClient, type NamecheapDomain } from './namecheap';
 export { relateClient, type BrandInfo, type RelateBrand } from './relate';
 export { brightLocalClient, type BrightLocalLocation, type BrightLocalCampaign, type CreateLocationParams } from './brightlocal';
 
-export type DomainSource = 'hostinger' | 'godaddy' | 'namecheap';
+export type DomainSource = 'hostinger' | 'godaddy' | 'namecheap' | 'manual';
 
 export interface UnifiedDomain {
   id: string;

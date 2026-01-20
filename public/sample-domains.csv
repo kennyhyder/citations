@@ -1,0 +1,4 @@
+domain,business_name,street,city,state,zip,country,phone,email,website,categories,description
+example-plumber.com,ABC Plumbing Services,123 Main Street,Los Angeles,CA,90001,US,(555) 123-4567,info@abcplumbing.com,https://example-plumber.com,"Plumber, Emergency Plumber, Water Heater Repair",Professional plumbing services for residential and commercial properties. Available 24/7 for emergencies.
+example-hvac.com,Cool Air HVAC,456 Oak Avenue,Chicago,IL,60601,US,(555) 234-5678,contact@coolair.com,https://example-hvac.com,"HVAC, Air Conditioning, Heating",Expert heating and cooling services. Installation repair and maintenance.
+example-electrician.com,Spark Electric Co,789 Pine Road,Houston,TX,77001,US,(555) 345-6789,hello@sparkelectric.com,https://example-electrician.com,"Electrician, Electrical Contractor",Licensed electricians providing residential and commercial electrical services.

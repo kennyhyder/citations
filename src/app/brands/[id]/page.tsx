@@ -42,6 +42,7 @@ interface DomainData {
   status: string;
   brand_info: BrandFormData | null;
   relate_brand: { status: string } | null;
+  brightlocal_brand: { status: string } | null;
 }
 
 const defaultHours = {
@@ -195,7 +196,12 @@ export default function BrandEditorPage({ params }: { params: Promise<{ id: stri
         <div className="flex items-center space-x-3">
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">{domain.domain}</h1>
           <StatusBadge status={domain.source} />
-          {domain.relate_brand && <StatusBadge status={domain.relate_brand.status} />}
+          {domain.relate_brand && (
+            <span className="text-xs text-zinc-500">Relate: <StatusBadge status={domain.relate_brand.status} /></span>
+          )}
+          {domain.brightlocal_brand && (
+            <span className="text-xs text-zinc-500">BrightLocal: <StatusBadge status={domain.brightlocal_brand.status} /></span>
+          )}
         </div>
         <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
           Edit business information for citation building
