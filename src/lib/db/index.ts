@@ -172,12 +172,18 @@ export const db = {
       if (error) throw error;
 
       if (data && data.length > 0) {
+        // Handle both array and single object responses from Supabase
+        const normalizeSingle = (val: unknown) => {
+          if (!val) return null;
+          if (Array.isArray(val)) return val[0] || null;
+          return val;
+        };
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const mapped = data.map((d: any) => ({
           ...d,
-          brand_info: d.brand_info?.[0] || null,
-          relate_brand: d.relate_brand?.[0] || null,
-          brightlocal_brand: d.brightlocal_brand?.[0] || null,
+          brand_info: normalizeSingle(d.brand_info),
+          relate_brand: normalizeSingle(d.relate_brand),
+          brightlocal_brand: normalizeSingle(d.brightlocal_brand),
         }));
         allData.push(...mapped);
         offset += pageSize;
@@ -207,11 +213,17 @@ export const db = {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const d = data as any;
+    // Handle both array and single object responses from Supabase
+    const normalizeSingle = (val: unknown) => {
+      if (!val) return null;
+      if (Array.isArray(val)) return val[0] || null;
+      return val;
+    };
     return {
       ...d,
-      brand_info: d.brand_info?.[0] || null,
-      relate_brand: d.relate_brand?.[0] || null,
-      brightlocal_brand: d.brightlocal_brand?.[0] || null,
+      brand_info: normalizeSingle(d.brand_info),
+      relate_brand: normalizeSingle(d.relate_brand),
+      brightlocal_brand: normalizeSingle(d.brightlocal_brand),
     };
   },
 
