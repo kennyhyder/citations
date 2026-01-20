@@ -72,7 +72,8 @@ export class RelateAutomation {
   // Namecheap URLs
   private readonly NAMECHEAP_LOGIN_URL = 'https://www.namecheap.com/myaccount/login/';
   private readonly NAMECHEAP_APPS_URL = 'https://www.namecheap.com/apps/';
-  private readonly RELATE_DASHBOARD_URL = 'https://relate.namecheap.com/';
+  private readonly RELATE_LOCAL_URL = 'https://www.namecheap.com/relate/local/';
+  private readonly RELATE_DASHBOARD_URL = 'https://www.namecheap.com/relate/local/dashboard/';
 
   constructor(config: Partial<RelateAutomationConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -274,48 +275,60 @@ export class RelateAutomation {
     try {
       if (!this.page) throw new Error('Page not initialized');
 
-      console.log('Navigating to Relate dashboard...');
+      console.log('Navigating to RelateLocal...');
 
-      // Try direct URL first
-      await this.page.goto(this.RELATE_DASHBOARD_URL, { waitUntil: 'networkidle' });
+      // Try the RelateLocal page first (which should have a dashboard link after login)
+      await this.page.goto(this.RELATE_LOCAL_URL, { waitUntil: 'networkidle' });
 
-      // If redirected to login, try through apps page
-      if (this.page.url().includes('login')) {
-        await this.page.goto(this.NAMECHEAP_APPS_URL, { waitUntil: 'networkidle' });
+      // If we're logged in, look for dashboard link or try direct dashboard URL
+      const currentUrl = this.page.url();
+      console.log(`Current URL after RelateLocal navigation: ${currentUrl}`);
 
-        // Look for Relate link/button
-        const relateSelectors = [
-          'a:has-text("Relate")',
-          'a:has-text("RelateLocal")',
-          '[href*="relate"]',
-          '.relate-app',
-        ];
+      // Try to find and click on dashboard/manage link
+      const dashboardSelectors = [
+        'a:has-text("Dashboard")',
+        'a:has-text("Manage")',
+        'a:has-text("My Locations")',
+        'a:has-text("Locations")',
+        '[href*="dashboard"]',
+        '[href*="manage"]',
+        'button:has-text("Go to Dashboard")',
+      ];
 
-        for (const selector of relateSelectors) {
-          try {
-            const link = await this.page.$(selector);
-            if (link) {
-              await link.click();
-              await this.page.waitForNavigation({ waitUntil: 'networkidle' });
-              break;
-            }
-          } catch {
-            continue;
+      for (const selector of dashboardSelectors) {
+        try {
+          const link = await this.page.$(selector);
+          if (link) {
+            console.log(`Found dashboard link: ${selector}`);
+            await link.click();
+            await this.page.waitForTimeout(3000);
+            break;
           }
+        } catch {
+          continue;
         }
+      }
+
+      // Try direct dashboard URL if we haven't navigated there yet
+      const afterClickUrl = this.page.url();
+      if (!afterClickUrl.includes('dashboard') && !afterClickUrl.includes('manage')) {
+        console.log('Trying direct dashboard URL...');
+        await this.page.goto(this.RELATE_DASHBOARD_URL, { waitUntil: 'networkidle' });
       }
 
       await this.screenshot('relate-dashboard');
 
       // Verify we're on Relate
-      const currentUrl = this.page.url();
-      if (currentUrl.includes('relate')) {
-        return { success: true, message: 'Successfully navigated to Relate dashboard' };
+      const finalUrl = this.page.url();
+      console.log(`Final URL: ${finalUrl}`);
+
+      if (finalUrl.includes('relate') || finalUrl.includes('local')) {
+        return { success: true, message: `Successfully navigated to Relate. URL: ${finalUrl}` };
       }
 
       return {
         success: false,
-        message: `Could not navigate to Relate. Current URL: ${currentUrl}`,
+        message: `Could not navigate to Relate. Current URL: ${finalUrl}`,
       };
 
     } catch (error) {
