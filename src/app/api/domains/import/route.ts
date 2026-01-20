@@ -39,7 +39,10 @@ interface CSVRow {
 }
 
 function parseCSV(csvText: string): CSVRow[] {
-  const lines = csvText.trim().split('\n');
+  // Remove BOM (Byte Order Mark) if present - common in Excel exports
+  const cleanText = csvText.replace(/^\uFEFF/, '').trim();
+
+  const lines = cleanText.split('\n');
   if (lines.length < 2) {
     throw new Error('CSV must have a header row and at least one data row');
   }
