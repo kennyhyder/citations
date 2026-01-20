@@ -1,36 +1,120 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Citation Management Tool
 
-## Getting Started
+Automate syncing domains from Hostinger, GoDaddy, and Namecheap into Namecheap's RelateLocal app for citation building (business listing management across 40+ directories).
 
-First, run the development server:
+## Features
+
+- **Multi-source domain sync**: Pull domains from Hostinger, GoDaddy, and Namecheap APIs
+- **Brand management**: Add business NAP (Name, Address, Phone), categories, hours, and social links per domain
+- **RelateLocal integration**: Push domains with brand info to Relate for citation building
+- **Automated sync**: Daily cron job via Vercel for hands-off operation
+- **Dashboard**: Overview of all domains, sync status, and recent activity
+
+## Architecture
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  Hostinger  │     │   GoDaddy   │     │  Namecheap  │
+│    API      │     │    API      │     │    API      │
+└──────┬──────┘     └──────┬──────┘     └──────┬──────┘
+       │                   │                   │
+       └───────────┬───────┴───────────────────┘
+                   ▼
+         ┌─────────────────┐
+         │   Next.js App   │
+         │   (Dashboard)   │
+         └────────┬────────┘
+                  │
+         ┌────────┴────────┐
+         ▼                 ▼
+   ┌──────────┐    ┌──────────────┐
+   │ Supabase │    │ Relate API   │
+   │ (State)  │    │ (Citations)  │
+   └──────────┘    └──────────────┘
+```
+
+## Setup
+
+### 1. Clone and install
+
+```bash
+git clone <repo>
+cd citations
+npm install
+```
+
+### 2. Configure Supabase
+
+1. Create a new Supabase project at https://supabase.com
+2. Go to Settings > API and copy your project URL and anon key
+3. Run the SQL schema in `src/lib/db/schema.sql` via the Supabase SQL Editor
+
+### 3. Configure environment variables
+
+Copy `.env.example` to `.env.local` and fill in:
+
+```env
+# Supabase (required)
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+
+# Domain providers (configure as needed)
+HOSTINGER_API_KEY=
+GODADDY_API_KEY=
+GODADDY_API_SECRET=
+NAMECHEAP_API_USER=
+NAMECHEAP_API_KEY=
+NAMECHEAP_CLIENT_IP=
+
+# Relate API
+RELATE_API_TOKEN=
+```
+
+### 4. Run locally
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Visit http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 5. Deploy to Vercel
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+vercel
+```
 
-## Learn More
+The cron job is configured in `vercel.json` to run daily at 6 AM UTC.
 
-To learn more about Next.js, take a look at the following resources:
+## API Endpoints
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/sync` | POST | Trigger a sync (`type`: domains/relate/full, `source`: all/hostinger/godaddy/namecheap) |
+| `/api/domains` | GET | List all domains with brand info |
+| `/api/domains/[id]` | GET | Get single domain details |
+| `/api/domains/[id]/brand` | POST | Save brand info for a domain |
+| `/api/cron/sync` | GET | Cron endpoint for scheduled syncs |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Pages
 
-## Deploy on Vercel
+- `/` - Dashboard with stats and recent activity
+- `/domains` - List all domains with status
+- `/sync` - Manual sync controls
+- `/brands/[id]` - Edit brand info for a domain
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Domain Provider API Requirements
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Service | Requirements | Docs |
+|---------|-------------|------|
+| Hostinger | API key from hPanel | [Hostinger API](https://developers.hostinger.com/) |
+| GoDaddy | API key + secret (10+ domains required) | [GoDaddy API](https://developer.godaddy.com/) |
+| Namecheap | API key + IP whitelist ($50 balance or 20+ domains) | [Namecheap API](https://www.namecheap.com/support/api/) |
+| Relate | API token from Participant menu | Contact Namecheap |
+
+## Database Tables
+
+- `domains` - Unified domain list with source tracking
+- `brand_info` - Full business info per domain (NAP, categories, hours, etc.)
+- `relate_brands` - Domains pushed to Relate with sync status
+- `sync_logs` - Audit trail of all sync operations
