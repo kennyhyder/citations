@@ -51,6 +51,20 @@ export interface RelateBrand {
   updated_at: string;
 }
 
+export interface BrightLocalBrand {
+  id: string;
+  domain_id: string;
+  brightlocal_location_id: string | null;
+  brightlocal_campaign_id: string | null;
+  status: 'pending' | 'active' | 'syncing' | 'error';
+  citations_ordered: number;
+  citations_completed: number;
+  last_synced_at: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface SyncLog {
   id: string;
   sync_type: 'domains' | 'relate' | 'full';
@@ -70,6 +84,7 @@ export interface SyncLog {
 export interface DomainWithBrand extends Domain {
   brand_info: BrandInfo | null;
   relate_brand: RelateBrand | null;
+  brightlocal_brand: BrightLocalBrand | null;
 }
 
 // Create Supabase client with lazy initialization
@@ -130,7 +145,8 @@ export const db = {
       .select(`
         *,
         brand_info (*),
-        relate_brand:relate_brands (*)
+        relate_brand:relate_brands (*),
+        brightlocal_brand:brightlocal_brands (*)
       `)
       .order('domain', { ascending: true });
 
@@ -140,6 +156,7 @@ export const db = {
       ...d,
       brand_info: d.brand_info?.[0] || null,
       relate_brand: d.relate_brand?.[0] || null,
+      brightlocal_brand: d.brightlocal_brand?.[0] || null,
     }));
   },
 
@@ -149,7 +166,8 @@ export const db = {
       .select(`
         *,
         brand_info (*),
-        relate_brand:relate_brands (*)
+        relate_brand:relate_brands (*),
+        brightlocal_brand:brightlocal_brands (*)
       `)
       .eq('id', id)
       .single();
@@ -163,6 +181,7 @@ export const db = {
       ...d,
       brand_info: d.brand_info?.[0] || null,
       relate_brand: d.relate_brand?.[0] || null,
+      brightlocal_brand: d.brightlocal_brand?.[0] || null,
     };
   },
 
@@ -305,23 +324,90 @@ export const db = {
     return data || [];
   },
 
+  // BrightLocal Brands
+  async getBrightLocalBrand(domainId: string): Promise<BrightLocalBrand | null> {
+    const { data, error } = await getSupabase()
+      .from('brightlocal_brands')
+      .select('*')
+      .eq('domain_id', domainId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') throw error;
+    return data;
+  },
+
+  async upsertBrightLocalBrand(brand: Omit<BrightLocalBrand, 'id' | 'created_at' | 'updated_at'>): Promise<BrightLocalBrand> {
+    const { data, error } = await getSupabase()
+      .from('brightlocal_brands')
+      .upsert(brand, { onConflict: 'domain_id' })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async updateBrightLocalStatus(domainId: string, updates: {
+    brightlocal_location_id?: string | null;
+    brightlocal_campaign_id?: string | null;
+    brightlocal_status?: string;
+    brightlocal_synced_at?: string | null;
+    error_message?: string | null;
+  }): Promise<BrightLocalBrand> {
+    // First try to update existing record
+    const existing = await db.getBrightLocalBrand(domainId);
+
+    if (existing) {
+      const { data, error } = await getSupabase()
+        .from('brightlocal_brands')
+        .update({
+          brightlocal_location_id: updates.brightlocal_location_id ?? existing.brightlocal_location_id,
+          brightlocal_campaign_id: updates.brightlocal_campaign_id ?? existing.brightlocal_campaign_id,
+          status: updates.brightlocal_status ?? existing.status,
+          last_synced_at: updates.brightlocal_synced_at ?? existing.last_synced_at,
+          error_message: updates.error_message ?? existing.error_message,
+        })
+        .eq('domain_id', domainId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    } else {
+      // Create new record
+      return db.upsertBrightLocalBrand({
+        domain_id: domainId,
+        brightlocal_location_id: updates.brightlocal_location_id || null,
+        brightlocal_campaign_id: updates.brightlocal_campaign_id || null,
+        status: (updates.brightlocal_status as 'pending' | 'active' | 'syncing' | 'error') || 'pending',
+        citations_ordered: 0,
+        citations_completed: 0,
+        last_synced_at: updates.brightlocal_synced_at || null,
+        error_message: updates.error_message || null,
+      });
+    }
+  },
+
   // Stats
   async getDashboardStats(): Promise<{
     totalDomains: number;
     bySource: Record<string, number>;
     inRelate: number;
+    inBrightLocal: number;
     pendingSync: number;
     withBrandInfo: number;
   }> {
     const supabase = getSupabase();
-    const [domainsResult, relateResult, brandResult] = await Promise.all([
+    const [domainsResult, relateResult, brightLocalResult, brandResult] = await Promise.all([
       supabase.from('domains').select('source', { count: 'exact' }),
       supabase.from('relate_brands').select('status', { count: 'exact' }),
+      supabase.from('brightlocal_brands').select('status', { count: 'exact' }),
       supabase.from('brand_info').select('id', { count: 'exact' }),
     ]);
 
     const domains = domainsResult.data || [];
     const relateBrands = relateResult.data || [];
+    const brightLocalBrands = brightLocalResult.data || [];
 
     const bySource = domains.reduce((acc, d) => {
       acc[d.source] = (acc[d.source] || 0) + 1;
@@ -332,7 +418,9 @@ export const db = {
       totalDomains: domainsResult.count || 0,
       bySource,
       inRelate: relateBrands.filter(r => r.status === 'active').length,
-      pendingSync: relateBrands.filter(r => r.status === 'pending' || r.status === 'error').length,
+      inBrightLocal: brightLocalBrands.filter(r => r.status === 'active').length,
+      pendingSync: relateBrands.filter(r => r.status === 'pending' || r.status === 'error').length +
+                   brightLocalBrands.filter(r => r.status === 'pending' || r.status === 'error').length,
       withBrandInfo: brandResult.count || 0,
     };
   },

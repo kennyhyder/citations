@@ -2,6 +2,7 @@ export { hostingerClient, type HostingerDomain } from './hostinger';
 export { godaddyClient, type GoDaddyDomain } from './godaddy';
 export { namecheapClient, type NamecheapDomain } from './namecheap';
 export { relateClient, type BrandInfo, type RelateBrand } from './relate';
+export { brightLocalClient, type BrightLocalLocation, type BrightLocalCampaign, type CreateLocationParams } from './brightlocal';
 
 export type DomainSource = 'hostinger' | 'godaddy' | 'namecheap';
 

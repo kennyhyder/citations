@@ -16,6 +16,9 @@ interface Domain {
   relate_brand: {
     status: string;
   } | null;
+  brightlocal_brand: {
+    status: string;
+  } | null;
 }
 
 interface DomainTableProps {
@@ -28,9 +31,12 @@ const sourceColors: Record<string, string> = {
   namecheap: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200',
 };
 
+type PushTarget = 'relate' | 'brightlocal';
+
 export function DomainTable({ domains }: DomainTableProps) {
   const [selectedDomains, setSelectedDomains] = useState<Set<string>>(new Set());
   const [pushing, setPushing] = useState(false);
+  const [pushTarget, setPushTarget] = useState<PushTarget | null>(null);
   const [pushResult, setPushResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const toggleDomain = (id: string) => {
@@ -56,16 +62,20 @@ export function DomainTable({ domains }: DomainTableProps) {
     setSelectedDomains(new Set(withBrand.map(d => d.id)));
   };
 
-  const pushToRelate = async () => {
+  const pushToService = async (target: PushTarget) => {
     if (selectedDomains.size === 0) return;
 
     setPushing(true);
+    setPushTarget(target);
     setPushResult(null);
+
+    const apiEndpoint = target === 'relate' ? '/api/automation' : '/api/brightlocal';
+    const serviceName = target === 'relate' ? 'Relate' : 'BrightLocal';
 
     try {
       const results = await Promise.all(
         Array.from(selectedDomains).map(async (domainId) => {
-          const res = await fetch('/api/automation', {
+          const res = await fetch(apiEndpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'push-domain', domainId }),
@@ -76,10 +86,11 @@ export function DomainTable({ domains }: DomainTableProps) {
 
       const successCount = results.filter(r => r.success).length;
       const failCount = results.length - successCount;
+      const errors = results.filter(r => !r.success).map(r => r.message).join('; ');
 
       setPushResult({
         success: failCount === 0,
-        message: `Pushed ${successCount} domain(s) to Relate${failCount > 0 ? `. ${failCount} failed.` : '.'}`,
+        message: `Pushed ${successCount} domain(s) to ${serviceName}${failCount > 0 ? `. ${failCount} failed: ${errors}` : '.'}`,
       });
 
       // Clear selection after successful push
@@ -89,10 +100,11 @@ export function DomainTable({ domains }: DomainTableProps) {
     } catch (error) {
       setPushResult({
         success: false,
-        message: error instanceof Error ? error.message : 'Failed to push domains',
+        message: error instanceof Error ? error.message : `Failed to push domains to ${serviceName}`,
       });
     } finally {
       setPushing(false);
+      setPushTarget(null);
     }
   };
 
@@ -114,12 +126,22 @@ export function DomainTable({ domains }: DomainTableProps) {
           </Button>
         </div>
         <div className="flex-1" />
-        <Button
-          onClick={pushToRelate}
-          disabled={selectedDomains.size === 0 || pushing}
-        >
-          {pushing ? 'Pushing...' : `Push to Relate (${selectedDomains.size})`}
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            onClick={() => pushToService('relate')}
+            disabled={selectedDomains.size === 0 || pushing}
+            variant="primary"
+          >
+            {pushing && pushTarget === 'relate' ? 'Pushing...' : `Push to Relate (${selectedDomains.size})`}
+          </Button>
+          <Button
+            onClick={() => pushToService('brightlocal')}
+            disabled={selectedDomains.size === 0 || pushing}
+            variant="secondary"
+          >
+            {pushing && pushTarget === 'brightlocal' ? 'Pushing...' : `Push to BrightLocal (${selectedDomains.size})`}
+          </Button>
+        </div>
       </div>
 
       {/* Result message */}
@@ -151,13 +173,13 @@ export function DomainTable({ domains }: DomainTableProps) {
                 Source
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                Status
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
                 Brand Info
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
                 Relate
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                BrightLocal
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
                 Expires
@@ -190,9 +212,6 @@ export function DomainTable({ domains }: DomainTableProps) {
                   </span>
                 </td>
                 <td className="whitespace-nowrap px-4 py-4">
-                  <StatusBadge status={domain.status} />
-                </td>
-                <td className="whitespace-nowrap px-4 py-4">
                   {domain.brand_info ? (
                     <span className="text-sm text-green-600 dark:text-green-400">Complete</span>
                   ) : (
@@ -203,7 +222,14 @@ export function DomainTable({ domains }: DomainTableProps) {
                   {domain.relate_brand ? (
                     <StatusBadge status={domain.relate_brand.status} />
                   ) : (
-                    <span className="text-sm text-zinc-400">Not synced</span>
+                    <span className="text-sm text-zinc-400">-</span>
+                  )}
+                </td>
+                <td className="whitespace-nowrap px-4 py-4">
+                  {domain.brightlocal_brand ? (
+                    <StatusBadge status={domain.brightlocal_brand.status} />
+                  ) : (
+                    <span className="text-sm text-zinc-400">-</span>
                   )}
                 </td>
                 <td className="whitespace-nowrap px-4 py-4 text-sm text-zinc-500 dark:text-zinc-400">
