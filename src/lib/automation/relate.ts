@@ -10,17 +10,34 @@ import { chromium, Browser, BrowserContext, Page } from 'playwright-core';
 import type { BrandInfo } from '@/lib/api/relate';
 
 // Dynamic import for serverless chromium (only used on Vercel)
-let chromiumModule: typeof import('@sparticuz/chromium') | null = null;
-async function getChromiumExecutable(): Promise<string | undefined> {
-  // On Vercel/serverless, use @sparticuz/chromium
+let chromiumModule: typeof import('@sparticuz/chromium-min') | null = null;
+
+// Chromium binary URL for serverless - hosted by @anthropic/chromium
+const CHROMIUM_PACK_URL = 'https://github.com/nickvr/chromium-binaries/releases/download/v131.0.1/chromium-v131.0.1-pack.tar';
+
+interface ChromiumConfig {
+  executablePath: string;
+  args: string[];
+}
+
+async function getChromiumConfig(): Promise<ChromiumConfig | null> {
+  // On Vercel/serverless, use @sparticuz/chromium-min
   if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
     if (!chromiumModule) {
-      chromiumModule = await import('@sparticuz/chromium');
+      chromiumModule = await import('@sparticuz/chromium-min');
     }
-    return chromiumModule.default.executablePath();
+    const chromium = chromiumModule.default;
+
+    // Disable graphics mode for serverless (reduces size, WebGL not needed)
+    chromium.setGraphicsMode = false;
+
+    return {
+      executablePath: await chromium.executablePath(CHROMIUM_PACK_URL),
+      args: chromium.args,
+    };
   }
   // On local/server, use system chromium (installed via npx playwright install)
-  return undefined;
+  return null;
 }
 
 export interface RelateAutomationConfig {
@@ -69,8 +86,8 @@ export class RelateAutomation {
       return;
     }
 
-    // Get executable path for Vercel/serverless or use system chromium
-    const executablePath = await getChromiumExecutable();
+    // Get chromium config for Vercel/serverless or use system chromium
+    const chromiumConfig = await getChromiumConfig();
 
     // Configure launch options
     const launchOptions: Parameters<typeof chromium.launch>[0] = {
@@ -79,18 +96,9 @@ export class RelateAutomation {
     };
 
     // On Vercel, use the @sparticuz/chromium executable and args
-    if (executablePath) {
-      launchOptions.executablePath = executablePath;
-      // Required args for serverless environment
-      launchOptions.args = [
-        '--disable-gpu',
-        '--disable-dev-shm-usage',
-        '--disable-setuid-sandbox',
-        '--no-first-run',
-        '--no-sandbox',
-        '--no-zygote',
-        '--single-process',
-      ];
+    if (chromiumConfig) {
+      launchOptions.executablePath = chromiumConfig.executablePath;
+      launchOptions.args = chromiumConfig.args;
     }
 
     this.browser = await chromium.launch(launchOptions);
