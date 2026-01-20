@@ -12,8 +12,8 @@ import type { BrandInfo } from '@/lib/api/relate';
 // Dynamic import for serverless chromium (only used on Vercel)
 let chromiumModule: typeof import('@sparticuz/chromium-min') | null = null;
 
-// Chromium binary URL for serverless - hosted by @anthropic/chromium
-const CHROMIUM_PACK_URL = 'https://github.com/nickvr/chromium-binaries/releases/download/v131.0.1/chromium-v131.0.1-pack.tar';
+// Chromium binary URL for serverless - official Sparticuz release
+const CHROMIUM_PACK_URL = 'https://github.com/Sparticuz/chromium/releases/download/v131.0.1/chromium-v131.0.1-pack.tar';
 
 interface ChromiumConfig {
   executablePath: string;
