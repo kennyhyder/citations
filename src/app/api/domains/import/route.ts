@@ -14,6 +14,28 @@ interface CSVRow {
   website?: string;
   categories?: string;
   description?: string;
+  logo_url?: string;
+  // Social links
+  facebook?: string;
+  twitter?: string;
+  instagram?: string;
+  linkedin?: string;
+  youtube?: string;
+  // Hours (open/close for each day)
+  monday_open?: string;
+  monday_close?: string;
+  tuesday_open?: string;
+  tuesday_close?: string;
+  wednesday_open?: string;
+  wednesday_close?: string;
+  thursday_open?: string;
+  thursday_close?: string;
+  friday_open?: string;
+  friday_close?: string;
+  saturday_open?: string;
+  saturday_close?: string;
+  sunday_open?: string;
+  sunday_close?: string;
 }
 
 function parseCSV(csvText: string): CSVRow[] {
@@ -118,6 +140,34 @@ export async function POST(request: NextRequest) {
           results.imported++;
         }
 
+        // Build hours object from CSV columns
+        const hours: Record<string, { open: string; close: string }> = {};
+        const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+        let hasHours = false;
+        for (const day of days) {
+          const openKey = `${day}_open` as keyof CSVRow;
+          const closeKey = `${day}_close` as keyof CSVRow;
+          if (row[openKey] || row[closeKey]) {
+            hours[day] = {
+              open: (row[openKey] as string) || '',
+              close: (row[closeKey] as string) || '',
+            };
+            hasHours = true;
+          }
+        }
+
+        // Build social links object
+        const socialLinks: Record<string, string> = {};
+        let hasSocialLinks = false;
+        const platforms = ['facebook', 'twitter', 'instagram', 'linkedin', 'youtube'];
+        for (const platform of platforms) {
+          const value = row[platform as keyof CSVRow] as string | undefined;
+          if (value) {
+            socialLinks[platform] = value;
+            hasSocialLinks = true;
+          }
+        }
+
         // Save brand info
         await db.upsertBrandInfo({
           domain_id: domainId,
@@ -132,9 +182,9 @@ export async function POST(request: NextRequest) {
           website: row.website || null,
           categories: row.categories ? row.categories.split(',').map(c => c.trim()) : null,
           description: row.description || null,
-          hours: null,
-          social_links: null,
-          logo_url: null,
+          hours: hasHours ? hours : null,
+          social_links: hasSocialLinks ? socialLinks : null,
+          logo_url: row.logo_url || null,
           image_urls: null,
         });
 
