@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
             }, { status: 400 });
           }
 
-          // Get domain with brand info from database
+          // Get domain from database
           const domain = await db.getDomain(domainId);
           if (!domain) {
             return NextResponse.json({
@@ -80,7 +80,9 @@ export async function POST(request: NextRequest) {
             }, { status: 404 });
           }
 
-          if (!domain.brand_info) {
+          // Get brand info separately
+          const domainBrandInfo = await db.getBrandInfo(domainId);
+          if (!domainBrandInfo) {
             return NextResponse.json({
               success: false,
               message: `Domain ${domain.domain} has no brand info configured`,
@@ -90,29 +92,29 @@ export async function POST(request: NextRequest) {
           // Convert database brand info to automation format
           const automationBrandInfo: BrandInfo = {
             domain: domain.domain,
-            businessName: domain.brand_info.business_name,
+            businessName: domainBrandInfo.business_name,
             address: {
-              street: domain.brand_info.street || '',
-              city: domain.brand_info.city || '',
-              state: domain.brand_info.state || '',
-              zip: domain.brand_info.zip || '',
-              country: domain.brand_info.country || 'US',
+              street: domainBrandInfo.street || '',
+              city: domainBrandInfo.city || '',
+              state: domainBrandInfo.state || '',
+              zip: domainBrandInfo.zip || '',
+              country: domainBrandInfo.country || 'US',
             },
-            phone: domain.brand_info.phone || '',
-            website: domain.brand_info.website || undefined,
-            email: domain.brand_info.email || undefined,
-            categories: domain.brand_info.categories || [],
-            description: domain.brand_info.description || undefined,
-            hours: domain.brand_info.hours || undefined,
-            socialLinks: domain.brand_info.social_links || undefined,
-            logo: domain.brand_info.logo_url || undefined,
+            phone: domainBrandInfo.phone || '',
+            website: domainBrandInfo.website || undefined,
+            email: domainBrandInfo.email || undefined,
+            categories: domainBrandInfo.categories || [],
+            description: domainBrandInfo.description || undefined,
+            hours: domainBrandInfo.hours || undefined,
+            socialLinks: domainBrandInfo.social_links || undefined,
+            logo: domainBrandInfo.logo_url || undefined,
           };
 
-          // Update relate_brands status to syncing
+          // Update relate_brands status to pending
           await db.upsertRelateBrand({
             domain_id: domainId,
             relate_brand_id: null,
-            status: 'syncing',
+            status: 'pending',
             directory_count: 0,
             last_synced_at: null,
             error_message: null,

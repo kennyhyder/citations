@@ -201,7 +201,7 @@ async function syncToRelate(): Promise<SyncResult> {
             await db.upsertRelateBrand({
               domain_id: domain.id,
               relate_brand_id: null,
-              status: 'syncing',
+              status: 'pending',
               directory_count: 0,
               last_synced_at: null,
               error_message: null,
@@ -271,7 +271,7 @@ async function syncToRelate(): Promise<SyncResult> {
           await db.upsertRelateBrand({
             domain_id: domain.id,
             relate_brand_id: null,
-            status: 'syncing',
+            status: 'pending',
             directory_count: 0,
             last_synced_at: null,
             error_message: null,

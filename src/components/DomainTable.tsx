@@ -13,10 +13,10 @@ interface Domain {
   brand_info: {
     business_name: string;
   } | null;
-  relate_brand: {
+  relate_brand?: {
     status: string;
   } | null;
-  brightlocal_brand: {
+  brightlocal_brand?: {
     status: string;
   } | null;
 }
