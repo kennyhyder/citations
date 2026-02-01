@@ -13,6 +13,7 @@ import {
   CitationVerifyResult,
   NormalizedLocation,
 } from './base';
+import { getCredential } from './credentials';
 
 interface LocalezeLocation {
   businessName: string;
@@ -84,27 +85,36 @@ class LocalezeClient extends BaseCitationClient {
   readonly tier = 2;
 
   private baseUrl = 'https://api.neustarlocaleze.biz/v2';
+  private cachedApiKey: string | null = null;
 
-  private get apiKey(): string {
-    return process.env.NEUSTAR_LOCALEZE_API_KEY || '';
+  private async getApiKey(): Promise<string | null> {
+    if (this.cachedApiKey) return this.cachedApiKey;
+    this.cachedApiKey = await getCredential('localeze', 'api_key', 'NEUSTAR_LOCALEZE_API_KEY');
+    return this.cachedApiKey;
   }
 
   isConfigured(): boolean {
-    return !!this.apiKey;
+    return !!process.env.NEUSTAR_LOCALEZE_API_KEY;
+  }
+
+  async isConfiguredAsync(): Promise<boolean> {
+    const apiKey = await this.getApiKey();
+    return !!apiKey;
   }
 
   private async request<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<LocalezeResponse<T>> {
-    if (!this.isConfigured()) {
+    const apiKey = await this.getApiKey();
+    if (!apiKey) {
       throw new Error('Neustar Localeze API key is not configured');
     }
 
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
       ...options,
       headers: {
-        'Authorization': `ApiKey ${this.apiKey}`,
+        'Authorization': `ApiKey ${apiKey}`,
         'Content-Type': 'application/json',
         ...options.headers,
       },

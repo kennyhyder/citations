@@ -13,6 +13,7 @@ import {
   CitationVerifyResult,
   NormalizedLocation,
 } from './base';
+import { getCredential } from './credentials';
 
 interface FacebookPage {
   id: string;
@@ -61,34 +62,51 @@ class FacebookClient extends BaseCitationClient {
   readonly tier = 1;
 
   private baseUrl = 'https://graph.facebook.com/v18.0';
+  private cachedCredentials: { appId?: string; appSecret?: string; accessToken?: string } = {};
 
-  private get appId(): string {
-    return process.env.FACEBOOK_APP_ID || '';
+  private async getAppId(): Promise<string | null> {
+    if (this.cachedCredentials.appId) return this.cachedCredentials.appId;
+    this.cachedCredentials.appId = await getCredential('facebook', 'app_id', 'FACEBOOK_APP_ID') || undefined;
+    return this.cachedCredentials.appId || null;
   }
 
-  private get appSecret(): string {
-    return process.env.FACEBOOK_APP_SECRET || '';
+  private async getAppSecret(): Promise<string | null> {
+    if (this.cachedCredentials.appSecret) return this.cachedCredentials.appSecret;
+    this.cachedCredentials.appSecret = await getCredential('facebook', 'app_secret', 'FACEBOOK_APP_SECRET') || undefined;
+    return this.cachedCredentials.appSecret || null;
   }
 
-  private get accessToken(): string {
-    return process.env.FACEBOOK_ACCESS_TOKEN || '';
+  private async getAccessToken(): Promise<string | null> {
+    if (this.cachedCredentials.accessToken) return this.cachedCredentials.accessToken;
+    this.cachedCredentials.accessToken = await getCredential('facebook', 'access_token', 'FACEBOOK_ACCESS_TOKEN') || undefined;
+    return this.cachedCredentials.accessToken || null;
   }
 
   isConfigured(): boolean {
-    return !!(this.appId && this.appSecret && this.accessToken);
+    return !!(process.env.FACEBOOK_APP_ID && process.env.FACEBOOK_APP_SECRET && process.env.FACEBOOK_ACCESS_TOKEN);
+  }
+
+  async isConfiguredAsync(): Promise<boolean> {
+    const [appId, appSecret, accessToken] = await Promise.all([
+      this.getAppId(),
+      this.getAppSecret(),
+      this.getAccessToken(),
+    ]);
+    return !!(appId && appSecret && accessToken);
   }
 
   private async request<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<FacebookResponse<T>> {
-    if (!this.isConfigured()) {
+    const accessToken = await this.getAccessToken();
+    if (!accessToken) {
       throw new Error('Facebook API credentials are not configured');
     }
 
     // Add access token to URL
     const separator = endpoint.includes('?') ? '&' : '?';
-    const url = `${this.baseUrl}${endpoint}${separator}access_token=${this.accessToken}`;
+    const url = `${this.baseUrl}${endpoint}${separator}access_token=${accessToken}`;
 
     const response = await fetch(url, {
       ...options,

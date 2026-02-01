@@ -12,6 +12,7 @@ import {
   CitationVerifyResult,
   NormalizedLocation,
 } from './base';
+import { getCredential } from './credentials';
 
 interface BrownbookBusiness {
   id?: string;
@@ -52,27 +53,36 @@ class BrownbookClient extends BaseCitationClient {
   readonly tier = 1;
 
   private baseUrl = 'https://api.brownbook.net/v1';
+  private cachedApiKey: string | null = null;
 
-  private get apiKey(): string {
-    return process.env.BROWNBOOK_API_KEY || '';
+  private async getApiKey(): Promise<string | null> {
+    if (this.cachedApiKey) return this.cachedApiKey;
+    this.cachedApiKey = await getCredential('brownbook', 'api_key', 'BROWNBOOK_API_KEY');
+    return this.cachedApiKey;
   }
 
   isConfigured(): boolean {
-    return !!this.apiKey;
+    return !!process.env.BROWNBOOK_API_KEY;
+  }
+
+  async isConfiguredAsync(): Promise<boolean> {
+    const apiKey = await this.getApiKey();
+    return !!apiKey;
   }
 
   private async request<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<BrownbookResponse<T>> {
-    if (!this.isConfigured()) {
+    const apiKey = await this.getApiKey();
+    if (!apiKey) {
       throw new Error('Brownbook API key is not configured');
     }
 
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
       ...options,
       headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
         ...options.headers,
       },

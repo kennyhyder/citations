@@ -13,6 +13,7 @@ import {
   CitationVerifyResult,
   NormalizedLocation,
 } from './base';
+import { getCredential } from './credentials';
 
 interface GoogleBusinessLocation {
   name?: string; // Resource name: accounts/{account}/locations/{location}
@@ -85,21 +86,37 @@ class GoogleBusinessClient extends BaseCitationClient {
   private accountManagementUrl = 'https://mybusinessaccountmanagement.googleapis.com/v1';
   private accessToken: string | null = null;
   private tokenExpiry: Date | null = null;
+  private cachedCredentials: { clientId?: string; clientSecret?: string; refreshToken?: string } = {};
 
-  private get clientId(): string {
-    return process.env.GOOGLE_BUSINESS_CLIENT_ID || '';
+  private async getClientId(): Promise<string | null> {
+    if (this.cachedCredentials.clientId) return this.cachedCredentials.clientId;
+    this.cachedCredentials.clientId = await getCredential('google-business', 'client_id', 'GOOGLE_BUSINESS_CLIENT_ID') || undefined;
+    return this.cachedCredentials.clientId || null;
   }
 
-  private get clientSecret(): string {
-    return process.env.GOOGLE_BUSINESS_CLIENT_SECRET || '';
+  private async getClientSecret(): Promise<string | null> {
+    if (this.cachedCredentials.clientSecret) return this.cachedCredentials.clientSecret;
+    this.cachedCredentials.clientSecret = await getCredential('google-business', 'client_secret', 'GOOGLE_BUSINESS_CLIENT_SECRET') || undefined;
+    return this.cachedCredentials.clientSecret || null;
   }
 
-  private get refreshToken(): string {
-    return process.env.GOOGLE_BUSINESS_REFRESH_TOKEN || '';
+  private async getRefreshToken(): Promise<string | null> {
+    if (this.cachedCredentials.refreshToken) return this.cachedCredentials.refreshToken;
+    this.cachedCredentials.refreshToken = await getCredential('google-business', 'refresh_token', 'GOOGLE_BUSINESS_REFRESH_TOKEN') || undefined;
+    return this.cachedCredentials.refreshToken || null;
   }
 
   isConfigured(): boolean {
-    return !!(this.clientId && this.clientSecret && this.refreshToken);
+    return !!(process.env.GOOGLE_BUSINESS_CLIENT_ID && process.env.GOOGLE_BUSINESS_CLIENT_SECRET && process.env.GOOGLE_BUSINESS_REFRESH_TOKEN);
+  }
+
+  async isConfiguredAsync(): Promise<boolean> {
+    const [clientId, clientSecret, refreshToken] = await Promise.all([
+      this.getClientId(),
+      this.getClientSecret(),
+      this.getRefreshToken(),
+    ]);
+    return !!(clientId && clientSecret && refreshToken);
   }
 
   /**
@@ -114,15 +131,25 @@ class GoogleBusinessClient extends BaseCitationClient {
       }
     }
 
+    const [clientId, clientSecret, refreshToken] = await Promise.all([
+      this.getClientId(),
+      this.getClientSecret(),
+      this.getRefreshToken(),
+    ]);
+
+    if (!clientId || !clientSecret || !refreshToken) {
+      throw new Error('Google Business Profile credentials are not configured');
+    }
+
     const response = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: new URLSearchParams({
-        client_id: this.clientId,
-        client_secret: this.clientSecret,
-        refresh_token: this.refreshToken,
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
         grant_type: 'refresh_token',
       }),
     });

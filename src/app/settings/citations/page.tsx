@@ -33,7 +33,7 @@ const PROVIDER_CONFIGS: ProviderConfig[] = [
       'Go to developer.foursquare.com and create an account',
       'Create a new project in the Foursquare Developer Console',
       'Generate an API key with Places API access',
-      'Copy the API key to your environment variables',
+      'Paste the API key below and save',
     ],
   },
   {
@@ -52,7 +52,7 @@ const PROVIDER_CONFIGS: ProviderConfig[] = [
       'Create a RapidAPI account at rapidapi.com',
       'Subscribe to the Local Data Exchange API',
       'Copy your RapidAPI key from the API dashboard',
-      'Add the key to your environment variables',
+      'Paste the key below and save',
     ],
   },
   {
@@ -71,7 +71,7 @@ const PROVIDER_CONFIGS: ProviderConfig[] = [
       'Contact Data Axle for API access (enterprise service)',
       'Complete the onboarding process',
       'Receive your API credentials',
-      'Add the API key to your environment variables',
+      'Paste the API key below and save',
     ],
   },
   {
@@ -90,7 +90,7 @@ const PROVIDER_CONFIGS: ProviderConfig[] = [
       'Contact Neustar/TransUnion for Localeze API access',
       'Sign up for a Localeze business account',
       'Request API credentials from your account manager',
-      'Add the API key to your environment variables',
+      'Paste the API key below and save',
     ],
   },
   {
@@ -112,7 +112,7 @@ const PROVIDER_CONFIGS: ProviderConfig[] = [
       'Enable the "My Business Business Information API"',
       'Create OAuth2 credentials (Web Application type)',
       'Use OAuth Playground to get a refresh token with the my-business scope',
-      'Add all three values to your environment variables',
+      'Enter all three values below and save',
     ],
   },
   {
@@ -135,7 +135,7 @@ const PROVIDER_CONFIGS: ProviderConfig[] = [
       'Add the Pages API product to your app',
       'Generate a long-lived Page Access Token using the Graph API Explorer',
       'Submit for App Review to get pages_manage_posts permission',
-      'Add all credentials to your environment variables',
+      'Enter all credentials below and save',
     ],
   },
   {
@@ -154,7 +154,7 @@ const PROVIDER_CONFIGS: ProviderConfig[] = [
       'Create a Brownbook business account',
       'Request API access from Brownbook support',
       'Receive your API key',
-      'Add the API key to your environment variables',
+      'Paste the API key below and save',
     ],
   },
 ];
@@ -163,8 +163,9 @@ export default function CitationSettingsPage() {
   const [providers, setProviders] = useState<ProviderConfig[]>(PROVIDER_CONFIGS);
   const [loading, setLoading] = useState(true);
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
-  const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string } | null>>({});
-  const [testing, setTesting] = useState<string | null>(null);
+  const [credentialInputs, setCredentialInputs] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState<string | null>(null);
+  const [saveMessage, setSaveMessage] = useState<{ provider: string; success: boolean; message: string } | null>(null);
 
   useEffect(() => {
     fetchProviderStatus();
@@ -172,14 +173,23 @@ export default function CitationSettingsPage() {
 
   async function fetchProviderStatus() {
     try {
-      const response = await fetch('/api/citations?action=status');
-      const data = await response.json();
+      // Fetch both API status and saved credentials
+      const [statusRes, credentialsRes] = await Promise.all([
+        fetch('/api/citations?action=status'),
+        fetch('/api/citations/credentials'),
+      ]);
 
-      if (data.providers) {
+      const statusData = await statusRes.json();
+      const credentialsData = await credentialsRes.json();
+
+      if (statusData.providers) {
         setProviders((prev) =>
           prev.map((p) => {
-            const status = data.providers.find((s: { slug: string; configured: boolean }) => s.slug === p.slug);
-            return status ? { ...p, isConfigured: status.configured } : p;
+            const status = statusData.providers.find((s: { slug: string; configured: boolean }) => s.slug === p.slug);
+            // Check if any credentials are configured in database
+            const dbConfigured = credentialsData.credentials?.[p.slug];
+            const hasDbCredentials = dbConfigured && Object.values(dbConfigured).some((v) => v === true);
+            return status ? { ...p, isConfigured: status.configured || hasDbCredentials } : p;
           })
         );
       }
@@ -190,33 +200,75 @@ export default function CitationSettingsPage() {
     }
   }
 
-  async function testProvider(slug: string) {
-    setTesting(slug);
-    setTestResults((prev) => ({ ...prev, [slug]: null }));
+  function handleCredentialChange(key: string, value: string) {
+    setCredentialInputs((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function saveCredentials(providerSlug: string, envVars: { key: string }[]) {
+    setSaving(providerSlug);
+    setSaveMessage(null);
 
     try {
-      // Test by checking if the provider can be initialized
-      const response = await fetch('/api/citations/providers?slug=' + slug);
+      // Build credentials object from inputs
+      const credentials: Record<string, string> = {};
+      let hasValues = false;
+
+      for (const envVar of envVars) {
+        const value = credentialInputs[envVar.key];
+        if (value && value.trim()) {
+          credentials[envVar.key] = value.trim();
+          hasValues = true;
+        }
+      }
+
+      if (!hasValues) {
+        setSaveMessage({
+          provider: providerSlug,
+          success: false,
+          message: 'Please enter at least one credential value',
+        });
+        return;
+      }
+
+      const response = await fetch('/api/citations/credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credentials }),
+      });
+
       const data = await response.json();
 
-      if (data.isConfigured) {
-        setTestResults((prev) => ({
-          ...prev,
-          [slug]: { success: true, message: 'Provider is configured and ready!' },
-        }));
+      if (data.success) {
+        setSaveMessage({
+          provider: providerSlug,
+          success: true,
+          message: 'Credentials saved successfully!',
+        });
+        // Clear inputs after successful save
+        setCredentialInputs((prev) => {
+          const updated = { ...prev };
+          for (const envVar of envVars) {
+            delete updated[envVar.key];
+          }
+          return updated;
+        });
+        // Refresh status
+        await fetchProviderStatus();
       } else {
-        setTestResults((prev) => ({
-          ...prev,
-          [slug]: { success: false, message: 'API credentials not found in environment' },
-        }));
+        setSaveMessage({
+          provider: providerSlug,
+          success: false,
+          message: data.message || 'Failed to save credentials',
+        });
       }
     } catch (error) {
-      setTestResults((prev) => ({
-        ...prev,
-        [slug]: { success: false, message: error instanceof Error ? error.message : 'Test failed' },
-      }));
+      setSaveMessage({
+        provider: providerSlug,
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to save',
+      });
     } finally {
-      setTesting(null);
+      setSaving(null);
     }
   }
 
@@ -224,21 +276,18 @@ export default function CitationSettingsPage() {
   const tier1Configured = providers.filter((p) => p.tier === 1 && p.isConfigured).length;
   const tier2Configured = providers.filter((p) => p.tier === 2 && p.isConfigured).length;
 
-  // Sort by priority (higher first), then by tier
+  // Sort by priority (higher first), configured first
   const sortedProviders = [...providers].sort((a, b) => {
     if (a.isConfigured !== b.isConfigured) return a.isConfigured ? -1 : 1;
     return b.priority - a.priority;
   });
-
-  // Recommended setup order (high-value, easy to configure first)
-  const recommendedOrder = ['foursquare', 'lde', 'data-axle', 'localeze', 'google-business', 'facebook', 'brownbook'];
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-4xl mx-auto px-4">
         <div className="mb-8">
           <Link href="/settings" className="text-blue-600 hover:text-blue-800 text-sm mb-4 inline-block">
-            ← Back to Settings
+            &larr; Back to Settings
           </Link>
           <h1 className="text-3xl font-bold text-gray-900">Citation Provider Setup</h1>
           <p className="mt-2 text-gray-600">
@@ -273,7 +322,7 @@ export default function CitationSettingsPage() {
             {configuredCount === 0
               ? 'Get started by configuring your first provider below.'
               : configuredCount === providers.length
-              ? 'All providers configured! You\'re ready to submit citations.'
+              ? "All providers configured! You're ready to submit citations."
               : `${providers.length - configuredCount} more providers to configure for full coverage.`}
           </p>
         </div>
@@ -341,7 +390,7 @@ export default function CitationSettingsPage() {
                                 : 'bg-purple-100 text-purple-700'
                             }`}
                           >
-                            Tier {provider.tier} {provider.isAggregator && '• Aggregator'}
+                            Tier {provider.tier} {provider.isAggregator && '- Aggregator'}
                           </span>
                         </div>
                         <p className="text-sm text-gray-500">{provider.coverage}</p>
@@ -368,31 +417,6 @@ export default function CitationSettingsPage() {
                 {/* Expanded Content */}
                 {expandedProvider === provider.slug && (
                   <div className="border-t border-gray-100 p-4 bg-gray-50">
-                    {/* Environment Variables */}
-                    <div className="mb-6">
-                      <h4 className="font-medium text-gray-900 mb-3">Required Environment Variables</h4>
-                      <div className="space-y-2">
-                        {provider.envVars.map((envVar) => (
-                          <div key={envVar.key} className="flex items-center justify-between bg-white p-3 rounded border">
-                            <div>
-                              <code className="text-sm font-mono text-gray-800">{envVar.key}</code>
-                              <p className="text-xs text-gray-500">{envVar.description}</p>
-                            </div>
-                            {envVar.link && (
-                              <a
-                                href={envVar.link}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-blue-600 hover:text-blue-800 text-sm"
-                              >
-                                Get credentials →
-                              </a>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
                     {/* Setup Steps */}
                     <div className="mb-6">
                       <h4 className="font-medium text-gray-900 mb-3">Setup Steps</h4>
@@ -402,6 +426,52 @@ export default function CitationSettingsPage() {
                         ))}
                       </ol>
                     </div>
+
+                    {/* Credential Inputs */}
+                    <div className="mb-6">
+                      <h4 className="font-medium text-gray-900 mb-3">Enter Credentials</h4>
+                      <div className="space-y-3">
+                        {provider.envVars.map((envVar) => (
+                          <div key={envVar.key}>
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="text-sm font-medium text-gray-700">
+                                {envVar.description}
+                              </label>
+                              {envVar.link && (
+                                <a
+                                  href={envVar.link}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:text-blue-800 text-xs"
+                                >
+                                  Get credentials &rarr;
+                                </a>
+                              )}
+                            </div>
+                            <input
+                              type="password"
+                              value={credentialInputs[envVar.key] || ''}
+                              onChange={(e) => handleCredentialChange(envVar.key, e.target.value)}
+                              placeholder={provider.isConfigured ? '********** (already configured)' : 'Enter value...'}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-blue-500 focus:border-blue-500"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Save Message */}
+                    {saveMessage && saveMessage.provider === provider.slug && (
+                      <div
+                        className={`mb-4 p-3 rounded-lg text-sm ${
+                          saveMessage.success
+                            ? 'bg-green-50 text-green-800 border border-green-200'
+                            : 'bg-red-50 text-red-800 border border-red-200'
+                        }`}
+                      >
+                        {saveMessage.message}
+                      </div>
+                    )}
 
                     {/* Actions */}
                     <div className="flex items-center justify-between">
@@ -417,22 +487,13 @@ export default function CitationSettingsPage() {
                           </a>
                         )}
                         <button
-                          onClick={() => testProvider(provider.slug)}
-                          disabled={testing === provider.slug}
+                          onClick={() => saveCredentials(provider.slug, provider.envVars)}
+                          disabled={saving === provider.slug}
                           className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
                         >
-                          {testing === provider.slug ? 'Testing...' : 'Test Connection'}
+                          {saving === provider.slug ? 'Saving...' : 'Save Credentials'}
                         </button>
                       </div>
-                      {testResults[provider.slug] && (
-                        <span
-                          className={`text-sm ${
-                            testResults[provider.slug]?.success ? 'text-green-600' : 'text-red-600'
-                          }`}
-                        >
-                          {testResults[provider.slug]?.message}
-                        </span>
-                      )}
                     </div>
                   </div>
                 )}
@@ -451,20 +512,20 @@ export default function CitationSettingsPage() {
             <div>
               <h4 className="font-medium text-gray-800 mb-2">Manual Only (Tier 3)</h4>
               <ul className="text-sm text-gray-600 space-y-1">
-                <li>• Bing Places (API in transition)</li>
-                <li>• Apple Business Connect (partner API only)</li>
-                <li>• Yelp (no bulk API)</li>
-                <li>• YellowPages (no bulk API)</li>
+                <li>- Bing Places (API in transition)</li>
+                <li>- Apple Business Connect (partner API only)</li>
+                <li>- Yelp (no bulk API)</li>
+                <li>- YellowPages (no bulk API)</li>
               </ul>
             </div>
             <div>
               <h4 className="font-medium text-gray-800 mb-2">Fed by Aggregators (Tier 4)</h4>
               <ul className="text-sm text-gray-600 space-y-1">
-                <li>• 8Coupons, ABLocal, AroundMe</li>
-                <li>• HERE, TomTom (via LDE)</li>
-                <li>• Siri (via Apple/Localeze)</li>
-                <li>• Snapchat, Uber (via Foursquare)</li>
-                <li>• And 100+ more...</li>
+                <li>- 8Coupons, ABLocal, AroundMe</li>
+                <li>- HERE, TomTom (via LDE)</li>
+                <li>- Siri (via Apple/Localeze)</li>
+                <li>- Snapchat, Uber (via Foursquare)</li>
+                <li>- And 100+ more...</li>
               </ul>
             </div>
           </div>

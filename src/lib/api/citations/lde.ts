@@ -13,6 +13,7 @@ import {
   CitationVerifyResult,
   NormalizedLocation,
 } from './base';
+import { getCredential } from './credentials';
 
 interface LDELocation {
   id?: string;
@@ -66,27 +67,36 @@ class LDEClient extends BaseCitationClient {
   readonly tier = 2;
 
   private baseUrl = 'https://local-data-exchange.p.rapidapi.com';
+  private cachedApiKey: string | null = null;
 
-  private get apiKey(): string {
-    return process.env.LDE_RAPIDAPI_KEY || '';
+  private async getApiKey(): Promise<string | null> {
+    if (this.cachedApiKey) return this.cachedApiKey;
+    this.cachedApiKey = await getCredential('lde', 'rapidapi_key', 'LDE_RAPIDAPI_KEY');
+    return this.cachedApiKey;
   }
 
   isConfigured(): boolean {
-    return !!this.apiKey;
+    return !!process.env.LDE_RAPIDAPI_KEY;
+  }
+
+  async isConfiguredAsync(): Promise<boolean> {
+    const apiKey = await this.getApiKey();
+    return !!apiKey;
   }
 
   private async request<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<LDEResponse<T>> {
-    if (!this.isConfigured()) {
+    const apiKey = await this.getApiKey();
+    if (!apiKey) {
       throw new Error('LDE RapidAPI key is not configured');
     }
 
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
       ...options,
       headers: {
-        'X-RapidAPI-Key': this.apiKey,
+        'X-RapidAPI-Key': apiKey,
         'X-RapidAPI-Host': 'local-data-exchange.p.rapidapi.com',
         'Content-Type': 'application/json',
         ...options.headers,
