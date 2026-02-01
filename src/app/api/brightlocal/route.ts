@@ -11,16 +11,23 @@ export async function GET() {
   }
 
   try {
-    // Connect and get available tools
-    await brightLocalClient.connect();
-    const tools = brightLocalClient.getAvailableTools();
+    // Test connection and list locations
+    const connectionTest = await brightLocalClient.testConnection();
 
-    // Try to list locations
+    if (!connectionTest.success) {
+      return NextResponse.json({
+        status: 'error',
+        message: connectionTest.message,
+      }, { status: 500 });
+    }
+
     const locations = await brightLocalClient.listLocations();
+    const clients = await brightLocalClient.listClients();
 
     return NextResponse.json({
       status: 'connected',
-      availableTools: tools,
+      message: connectionTest.message,
+      clientsCount: clients.length,
       locationsCount: locations.length,
       locations: locations.slice(0, 10), // Return first 10
     });
@@ -46,9 +53,13 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case 'list-locations': {
-        await brightLocalClient.connect();
         const locations = await brightLocalClient.listLocations();
         return NextResponse.json({ success: true, locations });
+      }
+
+      case 'list-clients': {
+        const clients = await brightLocalClient.listClients();
+        return NextResponse.json({ success: true, clients });
       }
 
       case 'push-domain': {
@@ -68,9 +79,11 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, message: 'Domain has no brand info' }, { status: 400 });
         }
 
+        // Get or create the default client for this app
+        const { clientId } = await brightLocalClient.getOrCreateDefaultClient();
+
         // Create location in BrightLocal
-        await brightLocalClient.connect();
-        const location = await brightLocalClient.createLocation({
+        const result = await brightLocalClient.createLocation({
           name: domain.brand_info.business_name,
           address: domain.brand_info.street || '',
           city: domain.brand_info.city || '',
@@ -82,19 +95,21 @@ export async function POST(request: NextRequest) {
           email: domain.brand_info.email || undefined,
           description: domain.brand_info.description || undefined,
           categories: domain.brand_info.categories || undefined,
+          clientId: String(clientId),
         });
 
         // Update database with BrightLocal location ID
         await db.updateBrightLocalStatus(domain.id, {
-          brightlocal_location_id: location.id,
+          brightlocal_location_id: String(result.locationId),
           brightlocal_status: 'active',
           brightlocal_synced_at: new Date().toISOString(),
         });
 
         return NextResponse.json({
           success: true,
-          message: `Created location in BrightLocal: ${location.name}`,
-          locationId: location.id,
+          message: `Created location in BrightLocal: ${domain.brand_info.business_name}`,
+          locationId: result.locationId,
+          note: 'Location created successfully. To order citations, create a Citation Builder campaign in the BrightLocal dashboard.',
         });
       }
 
@@ -103,27 +118,36 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, message: 'locationId required' }, { status: 400 });
         }
 
-        await brightLocalClient.connect();
-        const campaign = await brightLocalClient.createCitationCampaign(locationId);
-
-        return NextResponse.json({
-          success: true,
-          message: 'Citation campaign created',
-          campaign,
-        });
+        try {
+          const campaign = await brightLocalClient.createCitationCampaign(locationId);
+          return NextResponse.json({
+            success: true,
+            message: 'Citation campaign created',
+            campaign,
+          });
+        } catch (error) {
+          // Return the helpful error message about Citation Builder setup
+          return NextResponse.json({
+            success: false,
+            message: error instanceof Error ? error.message : 'Failed to create citation campaign',
+            note: 'Citation Builder API may require additional setup. The location has been created and you can order citations through the BrightLocal dashboard.',
+          }, { status: 400 });
+        }
       }
 
-      case 'get-tools': {
-        await brightLocalClient.connect();
-        const tools = brightLocalClient.getAvailableTools();
-        return NextResponse.json({ success: true, tools });
+      case 'test-connection': {
+        const result = await brightLocalClient.testConnection();
+        return NextResponse.json({
+          success: result.success,
+          message: result.message,
+        });
       }
 
       default:
         return NextResponse.json({
           success: false,
           message: `Unknown action: ${action}`,
-          availableActions: ['list-locations', 'push-domain', 'create-citation-campaign', 'get-tools'],
+          availableActions: ['list-locations', 'list-clients', 'push-domain', 'create-citation-campaign', 'test-connection'],
         }, { status: 400 });
     }
   } catch (error) {

@@ -1,10 +1,17 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+/**
+ * Database module
+ * Uses Supabase for data storage
+ */
 
-// Use 'any' for database type since we don't have generated types
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Database = any;
+import { createClient } from '@supabase/supabase-js';
 
-// Database types
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+// ============ Types ============
+
 export interface Domain {
   id: string;
   domain: string;
@@ -12,9 +19,9 @@ export interface Domain {
   source_id: string | null;
   status: string;
   expires_at: string | null;
+  last_synced_at: string | null;
   created_at: string;
   updated_at: string;
-  last_synced_at: string | null;
 }
 
 export interface BrandInfo {
@@ -25,7 +32,7 @@ export interface BrandInfo {
   city: string | null;
   state: string | null;
   zip: string | null;
-  country: string;
+  country: string | null;
   phone: string | null;
   email: string | null;
   website: string | null;
@@ -43,7 +50,7 @@ export interface RelateBrand {
   id: string;
   domain_id: string;
   relate_brand_id: string | null;
-  status: 'pending' | 'active' | 'syncing' | 'error';
+  status: 'pending' | 'active' | 'error';
   directory_count: number;
   last_synced_at: string | null;
   error_message: string | null;
@@ -51,492 +58,582 @@ export interface RelateBrand {
   updated_at: string;
 }
 
-export interface BrightLocalBrand {
+export interface MozLocalRecord {
   id: string;
   domain_id: string;
-  brightlocal_location_id: string | null;
-  brightlocal_campaign_id: string | null;
-  status: 'pending' | 'active' | 'syncing' | 'error';
-  citations_ordered: number;
-  citations_completed: number;
+  moz_local_id: string | null;
+  moz_business_id: string | null;
+  status: 'pending' | 'active' | 'error';
+  visibility_index: number | null;
   last_synced_at: string | null;
   error_message: string | null;
   created_at: string;
   updated_at: string;
 }
 
-export interface SyncLog {
-  id: string;
-  sync_type: 'domains' | 'relate' | 'full';
-  status: 'started' | 'completed' | 'failed';
-  source: string | null;
-  domains_found: number;
-  domains_added: number;
-  domains_updated: number;
-  brands_pushed: number;
-  error_message: string | null;
-  started_at: string;
-  completed_at: string | null;
-  metadata: Record<string, unknown> | null;
-}
-
 export interface Setting {
   id: string;
   key: string;
   value: string | null;
-  encrypted: boolean;
   description: string | null;
   category: string;
+  encrypted: boolean;
   created_at: string;
   updated_at: string;
 }
 
-// Extended domain with brand info
-export interface DomainWithBrand extends Domain {
-  brand_info: BrandInfo | null;
-  relate_brand: RelateBrand | null;
-  brightlocal_brand: BrightLocalBrand | null;
+// ============ Domain Methods ============
+
+async function getDomain(id: string): Promise<Domain | null> {
+  const { data, error } = await supabase
+    .from('domains')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null; // Not found
+    throw error;
+  }
+  return data;
 }
 
-// Create Supabase client with lazy initialization
-// This prevents errors during build when env vars aren't available
-let _supabase: SupabaseClient<Database> | null = null;
-let _supabaseAdmin: SupabaseClient<Database> | null = null;
+async function getDomainByName(domain: string): Promise<Domain | null> {
+  const { data, error } = await supabase
+    .from('domains')
+    .select('*')
+    .eq('domain', domain)
+    .single();
 
-function getSupabase(): SupabaseClient<Database> {
-  if (_supabase) return _supabase;
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Supabase URL and Anon Key must be configured in environment variables');
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
   }
-
-  _supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
-  return _supabase;
+  return data;
 }
 
-function getSupabaseAdmin(): SupabaseClient<Database> {
-  if (_supabaseAdmin) return _supabaseAdmin;
+async function getDomainsWithBrands(): Promise<(Domain & { brand_info: BrandInfo | null })[]> {
+  const { data, error } = await supabase
+    .from('domains')
+    .select(`
+      *,
+      brand_info (*)
+    `)
+    .order('created_at', { ascending: false });
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (error) throw error;
 
-  if (!supabaseUrl) {
-    throw new Error('Supabase URL must be configured in environment variables');
-  }
-
-  if (supabaseServiceKey) {
-    _supabaseAdmin = createClient<Database>(supabaseUrl, supabaseServiceKey);
-  } else {
-    _supabaseAdmin = getSupabase();
-  }
-  return _supabaseAdmin;
+  // Handle Supabase response format (can be object or array)
+  return (data || []).map((d: Domain & { brand_info: BrandInfo | BrandInfo[] | null }) => ({
+    ...d,
+    brand_info: Array.isArray(d.brand_info) ? d.brand_info[0] || null : d.brand_info,
+  }));
 }
 
-export { getSupabase as supabase, getSupabaseAdmin as supabaseAdmin };
+async function upsertDomain(domain: Omit<Domain, 'id' | 'created_at' | 'updated_at'>): Promise<Domain> {
+  const { data, error } = await supabase
+    .from('domains')
+    .upsert(domain, { onConflict: 'domain' })
+    .select()
+    .single();
 
-// Database helper functions
+  if (error) throw error;
+  return data;
+}
+
+// ============ Brand Info Methods ============
+
+async function getBrandInfo(domainId: string): Promise<BrandInfo | null> {
+  const { data, error } = await supabase
+    .from('brand_info')
+    .select('*')
+    .eq('domain_id', domainId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data;
+}
+
+async function upsertBrandInfo(
+  brandInfo: Omit<BrandInfo, 'id' | 'created_at' | 'updated_at'>
+): Promise<BrandInfo> {
+  const { data, error } = await supabase
+    .from('brand_info')
+    .upsert(brandInfo, { onConflict: 'domain_id' })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+// ============ Relate Brand Methods ============
+
+async function getRelateBrand(domainId: string): Promise<RelateBrand | null> {
+  const { data, error } = await supabase
+    .from('relate_brands')
+    .select('*')
+    .eq('domain_id', domainId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data;
+}
+
+async function upsertRelateBrand(
+  brand: Omit<RelateBrand, 'id' | 'created_at' | 'updated_at'>
+): Promise<RelateBrand> {
+  const { data, error } = await supabase
+    .from('relate_brands')
+    .upsert(brand, { onConflict: 'domain_id' })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+// ============ Moz Local Methods ============
+
+async function getMozLocalRecord(domainId: string): Promise<MozLocalRecord | null> {
+  const { data, error } = await supabase
+    .from('moz_local_records')
+    .select('*')
+    .eq('domain_id', domainId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data;
+}
+
+async function upsertMozLocalRecord(
+  record: Omit<MozLocalRecord, 'id' | 'created_at' | 'updated_at'>
+): Promise<MozLocalRecord> {
+  const { data, error } = await supabase
+    .from('moz_local_records')
+    .upsert(record, { onConflict: 'domain_id' })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+async function getMozLocalRecordByMozId(mozLocalId: string): Promise<MozLocalRecord | null> {
+  const { data, error } = await supabase
+    .from('moz_local_records')
+    .select('*')
+    .eq('moz_local_id', mozLocalId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data;
+}
+
+// ============ Settings Methods ============
+
+async function getSettings(): Promise<Setting[]> {
+  const { data, error } = await supabase
+    .from('settings')
+    .select('*')
+    .order('category', { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+}
+
+async function updateSettings(settings: Record<string, string | null>): Promise<void> {
+  for (const [key, value] of Object.entries(settings)) {
+    const { error } = await supabase
+      .from('settings')
+      .update({ value, updated_at: new Date().toISOString() })
+      .eq('key', key);
+
+    if (error) throw error;
+  }
+}
+
+// ============ Citation Types ============
+
+export interface CitationProvider {
+  id: string;
+  slug: string;
+  name: string;
+  tier: number;
+  auth_method: string;
+  base_url: string | null;
+  rate_limit_per_minute: number;
+  rate_limit_per_day: number;
+  requires_credentials: boolean;
+  is_aggregator: boolean;
+  coverage_description: string | null;
+  documentation_url: string | null;
+  is_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CitationSubmission {
+  id: string;
+  domain_id: string;
+  provider_slug: string;
+  external_id: string | null;
+  external_url: string | null;
+  status: 'pending' | 'queued' | 'submitting' | 'submitted' | 'verified' | 'error' | 'needs_update';
+  brand_info_hash: string | null;
+  error_message: string | null;
+  error_count: number;
+  last_submitted_at: string | null;
+  last_verified_at: string | null;
+  last_error_at: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CitationQueueItem {
+  id: string;
+  submission_id: string;
+  action: 'submit' | 'update' | 'verify' | 'delete';
+  priority: number;
+  attempts: number;
+  max_attempts: number;
+  scheduled_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  error_message: string | null;
+  batch_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CitationBatch {
+  id: string;
+  name: string | null;
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  total_submissions: number;
+  completed_submissions: number;
+  failed_submissions: number;
+  started_at: string | null;
+  completed_at: string | null;
+  created_by: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============ Citation Provider Methods ============
+
+async function getCitationProviders(): Promise<CitationProvider[]> {
+  const { data, error } = await supabase
+    .from('citation_providers')
+    .select('*')
+    .order('tier', { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+}
+
+async function getCitationProviderBySlug(slug: string): Promise<CitationProvider | null> {
+  const { data, error } = await supabase
+    .from('citation_providers')
+    .select('*')
+    .eq('slug', slug)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data;
+}
+
+async function getEnabledCitationProviders(): Promise<CitationProvider[]> {
+  const { data, error } = await supabase
+    .from('citation_providers')
+    .select('*')
+    .eq('is_enabled', true)
+    .order('tier', { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+}
+
+// ============ Citation Submission Methods ============
+
+async function getCitationSubmission(domainId: string, providerSlug: string): Promise<CitationSubmission | null> {
+  const { data, error } = await supabase
+    .from('citation_submissions')
+    .select('*')
+    .eq('domain_id', domainId)
+    .eq('provider_slug', providerSlug)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data;
+}
+
+async function getCitationSubmissionsForDomain(domainId: string): Promise<CitationSubmission[]> {
+  const { data, error } = await supabase
+    .from('citation_submissions')
+    .select('*')
+    .eq('domain_id', domainId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+async function upsertCitationSubmission(
+  submission: Omit<CitationSubmission, 'id' | 'created_at' | 'updated_at'>
+): Promise<CitationSubmission> {
+  const { data, error } = await supabase
+    .from('citation_submissions')
+    .upsert(submission, { onConflict: 'domain_id,provider_slug' })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+async function updateCitationSubmissionStatus(
+  id: string,
+  updates: Partial<Pick<CitationSubmission, 'status' | 'external_id' | 'external_url' | 'error_message' | 'error_count' | 'last_submitted_at' | 'last_verified_at' | 'last_error_at' | 'metadata'>>
+): Promise<CitationSubmission> {
+  const { data, error } = await supabase
+    .from('citation_submissions')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+// ============ Citation Queue Methods ============
+
+async function addToCitationQueue(
+  submissionId: string,
+  action: CitationQueueItem['action'],
+  priority: number = 50,
+  batchId?: string
+): Promise<CitationQueueItem> {
+  const { data, error } = await supabase
+    .from('citation_queue')
+    .insert({
+      submission_id: submissionId,
+      action,
+      priority,
+      batch_id: batchId,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+async function getNextCitationQueueItems(limit: number = 10): Promise<(CitationQueueItem & { submission: CitationSubmission })[]> {
+  const { data, error } = await supabase
+    .from('citation_queue')
+    .select(`
+      *,
+      submission:citation_submissions(*)
+    `)
+    .is('completed_at', null)
+    .lte('scheduled_at', new Date().toISOString())
+    .order('priority', { ascending: false })
+    .order('scheduled_at', { ascending: true })
+    .limit(limit);
+
+  if (error) throw error;
+
+  // Filter out items that have exceeded max_attempts
+  return (data || []).filter(item => item.attempts < item.max_attempts);
+}
+
+async function updateCitationQueueItem(
+  id: string,
+  updates: Partial<Pick<CitationQueueItem, 'started_at' | 'completed_at' | 'error_message' | 'attempts'>>
+): Promise<void> {
+  const { error } = await supabase
+    .from('citation_queue')
+    .update(updates)
+    .eq('id', id);
+
+  if (error) throw error;
+}
+
+// ============ Citation Batch Methods ============
+
+async function createCitationBatch(name?: string, createdBy?: string): Promise<CitationBatch> {
+  const { data, error } = await supabase
+    .from('citation_batches')
+    .insert({
+      name,
+      created_by: createdBy,
+      status: 'pending',
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+async function getCitationBatch(id: string): Promise<CitationBatch | null> {
+  const { data, error } = await supabase
+    .from('citation_batches')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data;
+}
+
+async function updateCitationBatchStatus(
+  id: string,
+  status: CitationBatch['status'],
+  counts?: { completed?: number; failed?: number; total?: number }
+): Promise<void> {
+  const updates: Record<string, unknown> = { status };
+
+  if (status === 'processing') {
+    updates.started_at = new Date().toISOString();
+  }
+
+  if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+    updates.completed_at = new Date().toISOString();
+  }
+
+  if (counts?.completed !== undefined) {
+    updates.completed_submissions = counts.completed;
+  }
+  if (counts?.failed !== undefined) {
+    updates.failed_submissions = counts.failed;
+  }
+  if (counts?.total !== undefined) {
+    updates.total_submissions = counts.total;
+  }
+
+  const { error } = await supabase
+    .from('citation_batches')
+    .update(updates)
+    .eq('id', id);
+
+  if (error) throw error;
+}
+
+async function getCitationBatches(status?: CitationBatch['status']): Promise<CitationBatch[]> {
+  let query = supabase
+    .from('citation_batches')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (status) {
+    query = query.eq('status', status);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+}
+
+// ============ Aggregator Distribution Methods ============
+
+interface AggregatorDistribution {
+  id: string;
+  aggregator_slug: string;
+  directory_name: string;
+  directory_url: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+async function getAggregatorDistributions(aggregatorSlug?: string): Promise<AggregatorDistribution[]> {
+  let query = supabase
+    .from('aggregator_distributions')
+    .select('*')
+    .order('directory_name', { ascending: true });
+
+  if (aggregatorSlug) {
+    query = query.eq('aggregator_slug', aggregatorSlug);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+}
+
+// ============ Export ============
+
 export const db = {
   // Domains
-  async getDomains(): Promise<Domain[]> {
-    const { data, error } = await getSupabase()
-      .from('domains')
-      .select('*')
-      .order('domain', { ascending: true });
-
-    if (error) throw error;
-    return data || [];
-  },
-
-  async getDomainsWithBrands(): Promise<DomainWithBrand[]> {
-    // Supabase has a default limit of 1000 rows, so we need to paginate to get all
-    const allData: DomainWithBrand[] = [];
-    const pageSize = 1000;
-    let offset = 0;
-    let hasMore = true;
-
-    while (hasMore) {
-      const { data, error } = await getSupabase()
-        .from('domains')
-        .select(`
-          *,
-          brand_info (*),
-          relate_brand:relate_brands (*),
-          brightlocal_brand:brightlocal_brands (*)
-        `)
-        .order('domain', { ascending: true })
-        .range(offset, offset + pageSize - 1);
-
-      if (error) throw error;
-
-      if (data && data.length > 0) {
-        // Handle both array and single object responses from Supabase
-        const normalizeSingle = (val: unknown) => {
-          if (!val) return null;
-          if (Array.isArray(val)) return val[0] || null;
-          return val;
-        };
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const mapped = data.map((d: any) => ({
-          ...d,
-          brand_info: normalizeSingle(d.brand_info),
-          relate_brand: normalizeSingle(d.relate_brand),
-          brightlocal_brand: normalizeSingle(d.brightlocal_brand),
-        }));
-        allData.push(...mapped);
-        offset += pageSize;
-        hasMore = data.length === pageSize;
-      } else {
-        hasMore = false;
-      }
-    }
-
-    return allData;
-  },
-
-  async getDomain(id: string): Promise<DomainWithBrand | null> {
-    const { data, error } = await getSupabase()
-      .from('domains')
-      .select(`
-        *,
-        brand_info (*),
-        relate_brand:relate_brands (*),
-        brightlocal_brand:brightlocal_brands (*)
-      `)
-      .eq('id', id)
-      .single();
-
-    if (error) throw error;
-    if (!data) return null;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const d = data as any;
-    // Handle both array and single object responses from Supabase
-    const normalizeSingle = (val: unknown) => {
-      if (!val) return null;
-      if (Array.isArray(val)) return val[0] || null;
-      return val;
-    };
-    return {
-      ...d,
-      brand_info: normalizeSingle(d.brand_info),
-      relate_brand: normalizeSingle(d.relate_brand),
-      brightlocal_brand: normalizeSingle(d.brightlocal_brand),
-    };
-  },
-
-  async getDomainByName(domain: string): Promise<Domain | null> {
-    const { data, error } = await getSupabase()
-      .from('domains')
-      .select('*')
-      .eq('domain', domain)
-      .single();
-
-    if (error && error.code !== 'PGRST116') throw error;
-    return data;
-  },
-
-  async upsertDomain(domain: Omit<Domain, 'id' | 'created_at' | 'updated_at'>): Promise<Domain> {
-    const { data, error } = await getSupabase()
-      .from('domains')
-      .upsert(domain, { onConflict: 'domain' })
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
-  },
-
-  async bulkUpsertDomains(domains: Omit<Domain, 'id' | 'created_at' | 'updated_at'>[]): Promise<Domain[]> {
-    const { data, error } = await getSupabase()
-      .from('domains')
-      .upsert(domains, { onConflict: 'domain' })
-      .select();
-
-    if (error) throw error;
-    return data || [];
-  },
+  getDomain,
+  getDomainByName,
+  getDomainsWithBrands,
+  upsertDomain,
 
   // Brand Info
-  async getBrandInfo(domainId: string): Promise<BrandInfo | null> {
-    const { data, error } = await getSupabase()
-      .from('brand_info')
-      .select('*')
-      .eq('domain_id', domainId)
-      .single();
-
-    if (error && error.code !== 'PGRST116') throw error;
-    return data;
-  },
-
-  async upsertBrandInfo(brandInfo: Omit<BrandInfo, 'id' | 'created_at' | 'updated_at'>): Promise<BrandInfo> {
-    const { data, error } = await getSupabase()
-      .from('brand_info')
-      .upsert(brandInfo, { onConflict: 'domain_id' })
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
-  },
+  getBrandInfo,
+  upsertBrandInfo,
 
   // Relate Brands
-  async getRelateBrand(domainId: string): Promise<RelateBrand | null> {
-    const { data, error } = await getSupabase()
-      .from('relate_brands')
-      .select('*')
-      .eq('domain_id', domainId)
-      .single();
+  getRelateBrand,
+  upsertRelateBrand,
 
-    if (error && error.code !== 'PGRST116') throw error;
-    return data;
-  },
-
-  async upsertRelateBrand(brand: Omit<RelateBrand, 'id' | 'created_at' | 'updated_at'>): Promise<RelateBrand> {
-    const { data, error } = await getSupabase()
-      .from('relate_brands')
-      .upsert(brand, { onConflict: 'domain_id' })
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
-  },
-
-  async getPendingRelateBrands(): Promise<(RelateBrand & { domain: Domain; brand_info: BrandInfo })[]> {
-    const { data, error } = await getSupabase()
-      .from('relate_brands')
-      .select(`
-        *,
-        domain:domains (*),
-        brand_info:brand_info (*)
-      `)
-      .in('status', ['pending', 'error'])
-      .order('created_at', { ascending: true });
-
-    if (error) throw error;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (data || []).map((d: any) => ({
-      ...d,
-      domain: d.domain,
-      brand_info: d.brand_info?.[0] || null,
-    }));
-  },
-
-  // Sync Logs
-  async createSyncLog(log: Pick<SyncLog, 'sync_type' | 'source'>): Promise<SyncLog> {
-    const { data, error } = await getSupabase()
-      .from('sync_logs')
-      .insert({
-        ...log,
-        status: 'started',
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
-  },
-
-  async updateSyncLog(
-    id: string,
-    updates: Partial<Pick<SyncLog, 'status' | 'domains_found' | 'domains_added' | 'domains_updated' | 'brands_pushed' | 'error_message' | 'completed_at' | 'metadata'>>
-  ): Promise<SyncLog> {
-    const { data, error } = await getSupabase()
-      .from('sync_logs')
-      .update(updates)
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
-  },
-
-  async getRecentSyncLogs(limit: number = 10): Promise<SyncLog[]> {
-    const { data, error } = await getSupabase()
-      .from('sync_logs')
-      .select('*')
-      .order('started_at', { ascending: false })
-      .limit(limit);
-
-    if (error) throw error;
-    return data || [];
-  },
-
-  // BrightLocal Brands
-  async getBrightLocalBrand(domainId: string): Promise<BrightLocalBrand | null> {
-    const { data, error } = await getSupabase()
-      .from('brightlocal_brands')
-      .select('*')
-      .eq('domain_id', domainId)
-      .single();
-
-    if (error && error.code !== 'PGRST116') throw error;
-    return data;
-  },
-
-  async upsertBrightLocalBrand(brand: Omit<BrightLocalBrand, 'id' | 'created_at' | 'updated_at'>): Promise<BrightLocalBrand> {
-    const { data, error } = await getSupabase()
-      .from('brightlocal_brands')
-      .upsert(brand, { onConflict: 'domain_id' })
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
-  },
-
-  async updateBrightLocalStatus(domainId: string, updates: {
-    brightlocal_location_id?: string | null;
-    brightlocal_campaign_id?: string | null;
-    brightlocal_status?: string;
-    brightlocal_synced_at?: string | null;
-    error_message?: string | null;
-  }): Promise<BrightLocalBrand> {
-    // First try to update existing record
-    const existing = await db.getBrightLocalBrand(domainId);
-
-    if (existing) {
-      const { data, error } = await getSupabase()
-        .from('brightlocal_brands')
-        .update({
-          brightlocal_location_id: updates.brightlocal_location_id ?? existing.brightlocal_location_id,
-          brightlocal_campaign_id: updates.brightlocal_campaign_id ?? existing.brightlocal_campaign_id,
-          status: updates.brightlocal_status ?? existing.status,
-          last_synced_at: updates.brightlocal_synced_at ?? existing.last_synced_at,
-          error_message: updates.error_message ?? existing.error_message,
-        })
-        .eq('domain_id', domainId)
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    } else {
-      // Create new record
-      return db.upsertBrightLocalBrand({
-        domain_id: domainId,
-        brightlocal_location_id: updates.brightlocal_location_id || null,
-        brightlocal_campaign_id: updates.brightlocal_campaign_id || null,
-        status: (updates.brightlocal_status as 'pending' | 'active' | 'syncing' | 'error') || 'pending',
-        citations_ordered: 0,
-        citations_completed: 0,
-        last_synced_at: updates.brightlocal_synced_at || null,
-        error_message: updates.error_message || null,
-      });
-    }
-  },
-
-  // Stats
-  async getDashboardStats(): Promise<{
-    totalDomains: number;
-    bySource: Record<string, number>;
-    inRelate: number;
-    inBrightLocal: number;
-    pendingSync: number;
-    withBrandInfo: number;
-  }> {
-    const supabase = getSupabase();
-    const [domainsResult, relateResult, brightLocalResult, brandResult] = await Promise.all([
-      supabase.from('domains').select('source', { count: 'exact' }),
-      supabase.from('relate_brands').select('status', { count: 'exact' }),
-      supabase.from('brightlocal_brands').select('status', { count: 'exact' }),
-      supabase.from('brand_info').select('id', { count: 'exact' }),
-    ]);
-
-    const domains = domainsResult.data || [];
-    const relateBrands = relateResult.data || [];
-    const brightLocalBrands = brightLocalResult.data || [];
-
-    const bySource = domains.reduce((acc, d) => {
-      acc[d.source] = (acc[d.source] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-
-    return {
-      totalDomains: domainsResult.count || 0,
-      bySource,
-      inRelate: relateBrands.filter(r => r.status === 'active').length,
-      inBrightLocal: brightLocalBrands.filter(r => r.status === 'active').length,
-      pendingSync: relateBrands.filter(r => r.status === 'pending' || r.status === 'error').length +
-                   brightLocalBrands.filter(r => r.status === 'pending' || r.status === 'error').length,
-      withBrandInfo: brandResult.count || 0,
-    };
-  },
+  // Moz Local
+  getMozLocalRecord,
+  upsertMozLocalRecord,
+  getMozLocalRecordByMozId,
 
   // Settings
-  async getSettings(): Promise<Setting[]> {
-    const { data, error } = await getSupabase()
-      .from('settings')
-      .select('*')
-      .order('category', { ascending: true });
+  getSettings,
+  updateSettings,
 
-    if (error) throw error;
-    return data || [];
-  },
+  // Citation Providers
+  getCitationProviders,
+  getCitationProviderBySlug,
+  getEnabledCitationProviders,
 
-  async getSettingsByCategory(category: string): Promise<Setting[]> {
-    const { data, error } = await getSupabase()
-      .from('settings')
-      .select('*')
-      .eq('category', category)
-      .order('key', { ascending: true });
+  // Citation Submissions
+  getCitationSubmission,
+  getCitationSubmissionsForDomain,
+  upsertCitationSubmission,
+  updateCitationSubmissionStatus,
 
-    if (error) throw error;
-    return data || [];
-  },
+  // Citation Queue
+  addToCitationQueue,
+  getNextCitationQueueItems,
+  updateCitationQueueItem,
 
-  async getSetting(key: string): Promise<string | null> {
-    const { data, error } = await getSupabase()
-      .from('settings')
-      .select('value')
-      .eq('key', key)
-      .single();
+  // Citation Batches
+  createCitationBatch,
+  getCitationBatch,
+  updateCitationBatchStatus,
+  getCitationBatches,
 
-    if (error && error.code !== 'PGRST116') throw error;
-    return data?.value || null;
-  },
-
-  async getSettingsMap(): Promise<Record<string, string>> {
-    const settings = await db.getSettings();
-    return settings.reduce((acc, s) => {
-      if (s.value) {
-        acc[s.key] = s.value;
-      }
-      return acc;
-    }, {} as Record<string, string>);
-  },
-
-  async upsertSetting(key: string, value: string | null, description?: string, category?: string): Promise<Setting> {
-    const { data, error } = await getSupabase()
-      .from('settings')
-      .upsert({
-        key,
-        value,
-        description,
-        category: category || 'general',
-      }, { onConflict: 'key' })
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
-  },
-
-  async updateSettings(settings: Record<string, string | null>): Promise<void> {
-    const updates = Object.entries(settings).map(([key, value]) => ({
-      key,
-      value,
-    }));
-
-    for (const update of updates) {
-      await getSupabase()
-        .from('settings')
-        .update({ value: update.value })
-        .eq('key', update.key);
-    }
-  },
+  // Aggregator Distributions
+  getAggregatorDistributions,
 };

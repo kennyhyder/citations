@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { Card, Button } from '@/components';
 
 interface SettingItem {
@@ -123,6 +124,28 @@ export default function SettingsPage() {
           </p>
         </div>
       )}
+
+      {/* Citation Providers Quick Link */}
+      <Card className="mb-6 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 border-blue-200 dark:border-blue-800">
+        <div className="p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-zinc-900 dark:text-white mb-1">
+                Citation Provider Setup
+              </h2>
+              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                Configure APIs to automatically distribute business listings to 150+ directories
+              </p>
+            </div>
+            <Link
+              href="/settings/citations"
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
+            >
+              Configure Providers →
+            </Link>
+          </div>
+        </div>
+      </Card>
 
       <div className="space-y-6">
         {Object.entries(settings).map(([category, categorySettings]) => (

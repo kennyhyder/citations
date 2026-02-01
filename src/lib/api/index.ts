@@ -3,6 +3,36 @@ export { godaddyClient, type GoDaddyDomain } from './godaddy';
 export { namecheapClient, type NamecheapDomain } from './namecheap';
 export { relateClient, type BrandInfo, type RelateBrand } from './relate';
 export { brightLocalClient, type BrightLocalLocation, type BrightLocalCampaign, type CreateLocationParams } from './brightlocal';
+export {
+  mozLocalClient,
+  type MozLocalLocation,
+  type MozLocalBusiness,
+  type MozLocalListingStatus,
+  type MozLocalDashboard,
+  type CreateLocationParams as MozLocalCreateLocationParams,
+  type UpdateLocationParams as MozLocalUpdateLocationParams,
+} from './mozlocal';
+
+// Citation clients
+export {
+  citationClients,
+  getCitationClient,
+  getConfiguredClients,
+  getClientsByTier,
+  getProviderStatus,
+  foursquareClient,
+  dataAxleClient,
+  googleBusinessClient,
+  facebookClient,
+  brownbookClient,
+  ldeClient,
+  localezeClient,
+  type CitationSubmitResult,
+  type CitationUpdateResult,
+  type CitationVerifyResult,
+  type CitationDeleteResult,
+  type NormalizedLocation,
+} from './citations';
 
 export type DomainSource = 'hostinger' | 'godaddy' | 'namecheap' | 'manual';
 
